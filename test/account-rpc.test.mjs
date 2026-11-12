@@ -112,5 +112,7 @@ test('暴露的方法列表与实现一致', () => {
     'account.setDefault',
     'account.setReceive',
     'account.remove',
+    'relation.sync',
+    'relation.stats',
   ]);
 });

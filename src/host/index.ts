@@ -148,6 +148,7 @@ export {
   PollingReceiver,
 } from './message.js';
 export { AccountDirectory } from './accounts.js';
+export { syncRelations, relationStats } from './sync.js';
 export {
   startLogin,
   completeLogin,

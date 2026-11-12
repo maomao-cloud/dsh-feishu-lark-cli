@@ -1,4 +1,5 @@
 import type { AccountDirectory, AccountView } from './accounts.js';
+import { relationStats, syncRelations } from './sync.js';
 import {
   AuthRegistry,
   fetchAppInfo,
@@ -58,6 +59,8 @@ export const ACCOUNT_METHODS = [
   'account.setDefault',
   'account.setReceive',
   'account.remove',
+  'relation.sync',
+  'relation.stats',
 ] as const;
 
 export interface AccountRpcDeps {
@@ -236,6 +239,21 @@ export function createAccountRpc(deps: AccountRpcDeps | AccountDirectory): RpcHa
             ok: true,
             value: { accounts: changed(await decorateAccounts(directory.setReceive(stringField(input.id, 'id'), input.enabled === true))) },
           };
+
+        case 'relation.sync': {
+          // 同步当前账号可见的用户与群，供 @ 解析使用。
+          const id = stringField(input.id, 'id');
+          const account = directory.account(id);
+          if (!account) return { ok: false, error: { code: 'account-missing', message: '账号不存在' } };
+
+          const result = await syncRelations(directory.db, account);
+          return { ok: true, value: { ...result, stats: relationStats(directory.db, id) } };
+        }
+
+        case 'relation.stats': {
+          const id = stringField(input.id, 'id');
+          return { ok: true, value: { stats: relationStats(directory.db, id) } };
+        }
 
         case 'account.remove':
           return { ok: true, value: { accounts: changed(await decorateAccounts(directory.remove(stringField(input.id, 'id')))) } };

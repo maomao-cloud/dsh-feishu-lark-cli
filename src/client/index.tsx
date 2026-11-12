@@ -58,6 +58,7 @@ const ENDPOINTS = {
   setDefault: 'account.setDefault',
   setReceive: 'account.setReceive',
   remove: 'account.remove',
+  syncRelations: 'relation.sync',
 } as const;
 
 type CallResult = {
@@ -119,6 +120,11 @@ function AccountRow({ account, call, busy, onChange }: {
     disabled: busy,
     onClick: () => void run('setReceive', { id: account.id, enabled: !account.receiveEnabled }),
   }, account.receiveEnabled ? '暂停接收' : '开启接收'),
+  c('button', {
+    type: 'button',
+    disabled: busy,
+    onClick: () => void run('syncRelations', { id: account.id }),
+  }, '同步关系'),
   c('button', {
     type: 'button',
     disabled: busy,

@@ -4,7 +4,18 @@ import { saveMessage } from './db.js';
 import type { Account, CliResult, ReceivedMessage } from '../shared/types.js';
 
 /** 用户身份读取会话列表（单聊 + 群聊）。 */
-export function listChats(account: Account): Promise<CliResult<{ chats?: Array<{ chat_id: string; name?: string }> }>> {
+/** 会话对象的最小字段集；lark-cli 实际返回更多字段，这里保留同步所需的部分。 */
+export interface RawChat {
+  chat_id: string;
+  name?: string;
+  chat_mode?: string;
+  chat_type?: string;
+  tenant_key?: string;
+  p2p_target_id?: string;
+  p2p_target_type?: string;
+}
+
+export function listChats(account: Account): Promise<CliResult<{ chats?: RawChat[] }>> {
   return runCli(['im', '+chat-list', '--types=p2p,group', '--as', 'user', '--page-all'], {
     profile: account.profile,
   });
