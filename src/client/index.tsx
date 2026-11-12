@@ -5,9 +5,10 @@
  * 调用宿主注册的精确路由，不使用需要构建期 Generator 的 Typert Remote。
  */
 import * as React from 'react';
+import { createFeishuTriggerSource } from './feishu-trigger.js';
 
 export const name = 'dsh-feishu-lark-cli-client';
-export const inject = ['slots', 'connection'];
+export const inject = ['slots', 'connection', 'inputTriggers'];
 
 const c = React.createElement;
 
@@ -59,6 +60,7 @@ const ENDPOINTS = {
   setReceive: 'account.setReceive',
   remove: 'account.remove',
   syncRelations: 'relation.sync',
+  relationCatalog: 'relation.catalog',
 } as const;
 
 type CallResult = {
@@ -326,6 +328,26 @@ export function AccountsSection({ call }: { call: Call }) {
 
 export function apply(ctx: any) {
   const call = createAccountCaller(ctx.connection);
+
+  // 挂接输入框 @ 管线：与文件/会话引用并列，不覆盖。
+  const triggers = ctx.get?.('inputTriggers') ?? ctx.inputTriggers;
+  if (typeof triggers?.registerSource === 'function') {
+    const source = createFeishuTriggerSource({
+      loadAccounts: async () => {
+        const result = await call('relationCatalog');
+        const accounts = (result.value?.accounts ?? []) as any[];
+        return accounts.map((account) => ({
+          accountId: account.accountId,
+          accountName: account.accountName,
+          appName: account.appName,
+          isCurrent: account.isCurrent === true,
+          relations: account.relations ?? [],
+        }));
+      },
+    });
+    ctx.effect(() => triggers.registerSource(source), 'dsh-feishu-lark-cli: @ source');
+  }
+
   const effect = typeof ctx.effect === 'function' ? ctx.effect.bind(ctx) : (fn: () => () => void) => {
     const dispose = fn();
     return () => dispose?.();

@@ -114,5 +114,6 @@ test('暴露的方法列表与实现一致', () => {
     'account.remove',
     'relation.sync',
     'relation.stats',
+    'relation.catalog',
   ]);
 });

@@ -95,3 +95,21 @@ export function relationStats(db: Database.Database, accountId: string): { conta
   const chats = db.prepare('SELECT COUNT(*) AS c FROM chat WHERE account_id = ?').get(accountId) as any;
   return { contacts: contacts?.c ?? 0, chats: chats?.c ?? 0 };
 }
+
+/** 读取某账号已同步的关系，供输入框 @ 面板使用。 */
+export function relationCatalog(
+  db: Database.Database,
+  accountId: string,
+): Array<{ type: 'user' | 'chat'; id: string; name: string; tenantKey?: string }> {
+  const users = db
+    .prepare('SELECT open_id AS id, name, tenant_key FROM contact WHERE account_id = ? ORDER BY name ASC')
+    .all(accountId) as Array<{ id: string; name: string; tenant_key: string | null }>;
+  const chats = db
+    .prepare('SELECT chat_id AS id, name, tenant_key FROM chat WHERE account_id = ? ORDER BY name ASC')
+    .all(accountId) as Array<{ id: string; name: string; tenant_key: string | null }>;
+
+  return [
+    ...users.map((row) => ({ type: 'user' as const, id: row.id, name: row.name, tenantKey: row.tenant_key ?? undefined })),
+    ...chats.map((row) => ({ type: 'chat' as const, id: row.id, name: row.name, tenantKey: row.tenant_key ?? undefined })),
+  ];
+}

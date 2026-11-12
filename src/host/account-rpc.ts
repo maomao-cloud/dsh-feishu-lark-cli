@@ -1,5 +1,5 @@
 import type { AccountDirectory, AccountView } from './accounts.js';
-import { relationStats, syncRelations } from './sync.js';
+import { relationCatalog, relationStats, syncRelations } from './sync.js';
 import {
   AuthRegistry,
   fetchAppInfo,
@@ -61,6 +61,7 @@ export const ACCOUNT_METHODS = [
   'account.remove',
   'relation.sync',
   'relation.stats',
+  'relation.catalog',
 ] as const;
 
 export interface AccountRpcDeps {
@@ -248,6 +249,21 @@ export function createAccountRpc(deps: AccountRpcDeps | AccountDirectory): RpcHa
 
           const result = await syncRelations(directory.db, account);
           return { ok: true, value: { ...result, stats: relationStats(directory.db, id) } };
+        }
+
+        case 'relation.catalog': {
+          // 供输入框 @ 面板使用：按账号返回已同步的关系，默认账号排在最前。
+          const accounts = directory.list();
+          const catalog = accounts.map((account) => ({
+            accountId: account.id,
+            accountName: account.name,
+            appName: account.appName,
+            isCurrent: account.isDefault,
+            relations: relationCatalog(directory.db, account.id),
+          }));
+          // 当前账号置顶，其余按默认顺序。
+          catalog.sort((a, b) => Number(b.isCurrent) - Number(a.isCurrent));
+          return { ok: true, value: { accounts: catalog } };
         }
 
         case 'relation.stats': {

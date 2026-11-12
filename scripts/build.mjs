@@ -54,7 +54,20 @@ async function emitTypes() {
   if (result.status) process.exit(result.status);
 }
 
+/** 触发来源是纯逻辑，单独产出一份 ESM 供测试导入。 */
+async function buildTriggerModule() {
+  await build({
+    entryPoints: [resolve(packageRoot, 'src/client/feishu-trigger.ts')],
+    outfile: resolve(packageRoot, 'lib/feishu-trigger.js'),
+    bundle: true,
+    format: 'esm',
+    platform: 'neutral',
+    target: 'es2022',
+  });
+}
+
 await buildHost();
+await buildTriggerModule();
 await buildClient();
 await emitTypes();
 console.log('built lib/index.js, lib/client.js and lib/types');
