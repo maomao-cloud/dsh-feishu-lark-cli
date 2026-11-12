@@ -1,0 +1,6 @@
+- id: dsh-feishu-lark-cli
+  name: dsh-feishu-lark-cli
+  path: ./lib/index.js
+- insert:
+    - id: dsh-feishu-lark-cli
+      name: dsh-feishu-lark-cli

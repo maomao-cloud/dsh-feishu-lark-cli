@@ -1,0 +1,7 @@
+node_modules/
+lib/
+.tmp/
+*.tgz
+*.db
+*.db-shm
+*.db-wal

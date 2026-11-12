@@ -1,0 +1,4 @@
+import type Database from 'better-sqlite3'; import type {Account,OperationContext} from '../shared/types.js';
+export function defaultAccount(db:Database.Database):Account|undefined { const r=db.prepare('SELECT * FROM account WHERE is_default=1 LIMIT 1').get() as any; return r&&map(r); }
+export function map(r:any):Account { return {...r,isDefault:!!r.is_default,receiveEnabled:!!r.receive_enabled,receiveMode:r.receive_mode,profile:r.profile,openId:r.open_id,tenantKey:r.tenant_key,tenantName:r.tenant_name,authStatus:r.auth_status}; }
+export function resolveContext(db:Database.Database, accountId?:string, target?:OperationContext['target']):OperationContext { const r=(accountId?db.prepare('SELECT * FROM account WHERE id=?').get(accountId):defaultAccount(db)) as any; if(!r) throw new Error('没有可用的飞书账号'); return {account:map(r),target}; }
