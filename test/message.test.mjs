@@ -98,3 +98,43 @@ test('@ 解析只返回当前账号可见的关系', () => {
 
   assert.deepEqual(resolveMention(directory.db, 'other', '研发'), []);
 });
+
+test('PollingReceiver.stop 后不再拉取，start 幂等', async () => {
+  const { PollingReceiver } = await import('../lib/index.js');
+  const directory = directoryWithAccount();
+  const account = {
+    id: 'acc', name: '刘珂', openId: 'ou_me', tenantKey: '', profile: 'nope',
+    isDefault: true, receiveEnabled: true, receiveMode: 'polling', authStatus: 'authorized',
+  };
+  const receiver = new PollingReceiver(directory.db, account, { intervalMs: 10_000 }, () => {});
+  receiver.start();
+  receiver.start();
+  assert.equal(receiver.isRunning, true);
+  receiver.stop();
+  assert.equal(receiver.isRunning, false);
+  // 停止后单轮拉取立即返回，不产生任何写入。
+  const result = await receiver.tick();
+  assert.deepEqual(result, { chats: 0, inserted: 0 });
+  assert.equal(directory.db.prepare('SELECT COUNT(*) AS count FROM message').get().count, 0);
+});
+
+test('PollingReceiver 在 CLI 不可用时静默跳过而不抛出', async () => {
+  const { PollingReceiver } = await import('../lib/index.js');
+  const directory = directoryWithAccount();
+  const account = {
+    id: 'acc', name: '刘珂', openId: 'ou_me', tenantKey: '', profile: 'missing-profile',
+    isDefault: true, receiveEnabled: true, receiveMode: 'polling', authStatus: 'authorized',
+  };
+  const previous = process.env.LARK_CLI_PATH;
+  process.env.LARK_CLI_PATH = '/definitely/missing/lark-cli';
+  try {
+    const receiver = new PollingReceiver(directory.db, account, { intervalMs: 10_000 }, () => {});
+    receiver.start();
+    const result = await receiver.tick();
+    receiver.stop();
+    assert.deepEqual(result, { chats: 0, inserted: 0 });
+  } finally {
+    if (previous === undefined) delete process.env.LARK_CLI_PATH;
+    else process.env.LARK_CLI_PATH = previous;
+  }
+});
