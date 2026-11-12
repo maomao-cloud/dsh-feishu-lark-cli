@@ -15,22 +15,24 @@ const require = createRequire(import.meta.url);
 /**
  * lark-cli 的持久化配置根目录。
  *
- * lark-cli 用 `XDG_CONFIG_HOME`（缺省 `$HOME/.config`）存放应用配置与 OAuth 凭证。
- * 容器里的 `$HOME` 位于可写层，Pod 重建后授权全部丢失，因此这里固定指向
- * DSH 的数据目录，保证重启后账号仍然有效。
+ * 实测结论：lark-cli 把应用配置与 OAuth 凭证写在 `$HOME/.lark-cli`，
+ * **不读 `XDG_CONFIG_HOME`**。容器里的 `$HOME`（/home/dsh）不在持久卷内，
+ * Pod 重建后授权会全部丢失，因此这里把 HOME 指向 DSH 数据目录下的私有 home，
+ * 保证凭证落在持久卷上。
  */
 export function larkConfigHome(): string {
   const explicit = process.env.DSH_FEISHU_LARK_CLI_CONFIG_HOME;
   if (explicit) return explicit;
   const dshHome = process.env.DSH_HOME ?? join(homedir(), '.dsh');
-  return join(dshHome, 'integrations', 'lark-cli-config');
+  return join(dshHome, 'integrations', 'lark-cli-home');
 }
 
 /** 所有 lark-cli 子进程共用的环境变量，确保读到同一份凭证。 */
 export function larkCliEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const configHome = larkConfigHome();
   mkdirSync(configHome, { recursive: true });
-  return { ...base, XDG_CONFIG_HOME: configHome };
+  // lark-cli 以 $HOME/.lark-cli 为配置根，重定向 HOME 才能改变实际落盘位置。
+  return { ...base, HOME: configHome, XDG_CONFIG_HOME: join(configHome, '.config') };
 }
 
 /**

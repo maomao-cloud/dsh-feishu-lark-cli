@@ -165,11 +165,22 @@ export function AccountsSection({ call }: { call: Call }) {
     }
   };
 
-  /** 轮询直到 predicate 返回 true 或超时。 */
-  const poll = async (probe: () => Promise<boolean>, timeoutMs: number, intervalMs = 3000) => {
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
+  /**
+   * 轮询直到 predicate 返回 true 或超时。
+   *
+   * 每轮把已等待秒数回报给界面，避免用户只看到「加载中」而无从判断进度。
+   */
+  const poll = async (
+    probe: () => Promise<boolean>,
+    timeoutMs: number,
+    onTick?: (elapsedSec: number) => void,
+    intervalMs = 3000,
+  ) => {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
       await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      const elapsed = Math.round((Date.now() - startedAt) / 1000);
+      onTick?.(elapsed);
       if (await probe()) return true;
     }
     return false;
@@ -194,19 +205,33 @@ export function AccountsSection({ call }: { call: Call }) {
     setNotice('已打开飞书应用配置页，完成后会自动继续。');
     openUrl(url);
 
-    const configured = await poll(async () => {
-      const status = await call('authStatus');
-      return status.value?.configured === true;
-    }, 5 * 60 * 1000);
+    const configured = await poll(
+      async () => {
+        const status = await call('authStatus');
+        return status.value?.configured === true;
+      },
+      3 * 60 * 1000,
+      (elapsed) => setNotice(`等待飞书应用配置完成…已等待 ${elapsed} 秒（完成后会自动继续）`),
+    );
 
     setAuthUrl(null);
     if (configured) {
-      setNotice('应用配置完成，可以开始授权账号了');
+      await refreshConfigState();
+      await refresh();
+      setNotice('应用配置完成，现在点击「添加账号」授权你的飞书账号');
       setError(null);
     } else {
-      setError('应用配置未完成或超时，请重试');
+      // 超时不当作失败：可能已完成但状态未及时反映，提示用户手动刷新。
+      setError('尚未检测到应用配置完成。若浏览器中已显示成功，请点「刷新」重试。');
     }
     setBusy(false);
+  };
+
+  /** 放弃当前等待，立即恢复界面，避免用户被困在「加载中」。 */
+  const cancelWait = () => {
+    setAuthUrl(null);
+    setBusy(false);
+    setNotice('已停止等待，可点「刷新」查看当前状态');
   };
 
   /** 第二步：个人账号授权。 */
@@ -270,8 +295,9 @@ export function AccountsSection({ call }: { call: Call }) {
     c('h2', { style: { margin: 0 } }, 'feishu-lark-cli · 飞书个人账号多账号管理'),
     error ? c('p', { style: { color: '#c0392b', margin: 0 } }, error) : null,
     notice ? c('p', { style: { opacity: .7, margin: 0 } }, notice) : null,
-    authUrl ? c('p', { style: { margin: 0 } },
-      c('a', { href: authUrl, target: '_blank', rel: 'noopener noreferrer' }, '打开飞书授权页')) : null,
+    authUrl ? c('p', { style: { margin: 0, display: 'flex', gap: 12, alignItems: 'center' } },
+      c('a', { href: authUrl, target: '_blank', rel: 'noopener noreferrer' }, '重新打开授权页'),
+      c('button', { type: 'button', onClick: () => cancelWait() }, '停止等待')) : null,
     accounts.length === 0
       ? c('p', { style: { opacity: .7, margin: 0 } }, busy ? '加载中…' : '尚未添加飞书账号')
       : c('ul', { style: { listStyle: 'none', margin: 0, padding: 0 } },
