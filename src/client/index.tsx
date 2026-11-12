@@ -116,10 +116,20 @@ export function AccountsSection({ call }: { call: Call }) {
   const [busy, setBusy] = React.useState(true);
   const [notice, setNotice] = React.useState<string | null>(null);
   const [authUrl, setAuthUrl] = React.useState<string | null>(null);
+  const [configured, setConfigured] = React.useState(false);
+  const [profileName, setProfileName] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+
+  /** 读取应用配置状态，决定是否还需要显示「配置飞书应用」。 */
+  const refreshConfigState = React.useCallback(async () => {
+    const status = await call('authStatus');
+    setConfigured(status.value?.configured === true);
+    setProfileName(typeof status.value?.profile === 'string' ? status.value.profile : null);
+  }, [call]);
 
   const refresh = React.useCallback(async () => {
     setBusy(true);
+    await refreshConfigState();
     const result = await call('accounts');
     if (result.accounts) {
       setAccounts(result.accounts);
@@ -128,7 +138,7 @@ export function AccountsSection({ call }: { call: Call }) {
       setError(result.error ?? '读取账号列表失败');
     }
     setBusy(false);
-  }, [call]);
+  }, [call, refreshConfigState]);
 
   React.useEffect(() => { void refresh(); }, [refresh]);
 
@@ -258,9 +268,13 @@ export function AccountsSection({ call }: { call: Call }) {
           onChange: setAccounts,
         }))),
     c('div', { style: { display: 'flex', gap: 8 } },
-      c('button', { type: 'button', disabled: busy, onClick: () => void configureApp() }, '配置飞书应用'),
+      // 已配置应用后隐藏该按钮，避免用户误以为需要重复配置。
+      configured ? null : c('button', { type: 'button', disabled: busy, onClick: () => void configureApp() }, '配置飞书应用'),
       c('button', { type: 'button', disabled: busy, onClick: () => void startAuth() }, '添加账号'),
-      c('button', { type: 'button', disabled: busy, onClick: () => void refresh() }, '刷新')));
+      c('button', { type: 'button', disabled: busy, onClick: () => void refresh() }, '刷新')),
+    profileName
+      ? c('p', { style: { opacity: .6, margin: 0, fontSize: 12 } }, `飞书应用：${profileName}`)
+      : null);
 }
 
 export function apply(ctx: any) {
