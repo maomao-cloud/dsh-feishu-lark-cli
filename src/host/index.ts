@@ -149,6 +149,7 @@ export {
 } from './message.js';
 export { AccountDirectory } from './accounts.js';
 export { syncRelations, relationStats, relationCatalog } from './sync.js';
+export { parseMentions, stripMentions, sendMentionMessage } from './mention.js';
 export {
   startLogin,
   completeLogin,

@@ -100,6 +100,24 @@ export function createFeishuTriggerSource(deps: {
         value: item.value,
       }));
     },
+    /**
+     * 提交时的模型序列化。
+     *
+     * 把内部载荷还原成人类可读、Agent 可解析的 mention 文本，
+     * 形如 `@[张三](dsh-feishu:accA:user:ou_a1)`，与会话引用的
+     * `@[label](dsh-session:…)` 保持同一种范式。
+     */
+    codec: {
+      clipboardText(ref: string) {
+        const parsed = parseMentionValue(ref);
+        return parsed ? `@${parsed.id}` : ref;
+      },
+      async serialize(ref: string) {
+        const parsed = parseMentionValue(ref);
+        if (!parsed) return ref;
+        return `@[${parsed.accountId}:${parsed.type}:${parsed.id}](${ref})`;
+      },
+    },
     onPick(pick: any) {
       const value = pick?.candidate?.value ?? '';
       const parsed = parseMentionValue(value);

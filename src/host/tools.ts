@@ -3,6 +3,12 @@ import type { AccountDirectory } from './accounts.js';
 import type { Account } from '../shared/types.js';
 import { resolveMention, type MentionTarget } from './relation.js';
 import { fetchDocument, searchDocuments, sendMessage, type MessageEvent } from './message.js';
+import { parseMentions, sendMentionMessage } from './mention.js';
+
+/** 判断文本里是否包含本插件的 mention 引用。 */
+function mentionContainsFeishuRef(text: unknown): boolean {
+  return typeof text === 'string' && parseMentions(text).length > 0;
+}
 
 export interface ToolDeps {
   directory: AccountDirectory;
@@ -95,9 +101,9 @@ export function registerFeishuTools(ctx: any, deps: ToolDeps) {
 
   register({
     name: 'feishu_send_message',
-    description: '以飞书个人账号发送消息。目标可用 user(open_id)、chat(chat_id) 或 mention(按当前账号关系匹配姓名)。',
+    description: '以飞书个人账号发送消息。可直接传输入框里的 mention 文本（@[名字](dsh-feishu:…)），也可指定 user/chat。',
     parameters: {
-      text: { type: 'string', required: true, description: '消息正文' },
+      text: { type: 'string', required: true, description: '消息正文；也可包含 @[名字](dsh-feishu:…) 形式的 mention' },
       user: { type: 'string', description: '接收人 open_id' },
       chat: { type: 'string', description: '目标会话 chat_id' },
       mention: { type: 'string', description: '按姓名在本地关系中匹配' },
@@ -106,6 +112,18 @@ export function registerFeishuTools(ctx: any, deps: ToolDeps) {
     output: textResult('send result'),
     async execute(args: any) {
       try {
+        // 输入框 @ 产生的 mention 自带账号与目标，优先按它发送。
+        if (mentionContainsFeishuRef(args.text)) {
+          const sent = await sendMentionMessage(
+            deps.directory.db,
+            args.text,
+            (accountId) => pickAccount(deps.directory, accountId),
+          );
+          return sent
+            .map((item) => `已通过「${item.account}」向 ${item.target} 发送消息`)
+            .join('\n');
+        }
+
         const account = pickAccount(deps.directory, args.accountId);
         const target = resolveTarget(deps.directory.db, account, args);
         const result = await sendMessage(account, target, args.text, `fsl-${Date.now()}`);
