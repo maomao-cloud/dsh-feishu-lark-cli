@@ -107,15 +107,20 @@ export async function apply(ctx: any) {
   const warnedMissingCli = { value: false };
   const logger = ctx.logger ?? console;
 
-  // 路由、工具与接收器都注册在 ctx 上，插件卸载时由 Cordis 统一回收。
-  ctx.effect(() => registerAccountRpc(ctx, createAccountRpc(directory)), 'dsh-feishu-lark-cli: account rpc');
-  ctx.effect(() => registerFeishuTools(ctx, { directory }), 'dsh-feishu-lark-cli: tools');
-
   const sync = () => syncReceivers(directory, receivers, {
     logger,
     warnedMissingCli,
     publish: bus.publish,
   });
+
+  // 路由、工具与接收器都注册在 ctx 上，插件卸载时由 Cordis 统一回收。
+  // 账号变化后立即同步接收器，使设置页开关即时生效。
+  ctx.effect(
+    () => registerAccountRpc(ctx, createAccountRpc({ directory, onAccountsChanged: sync })),
+    'dsh-feishu-lark-cli: account rpc',
+  );
+  ctx.effect(() => registerFeishuTools(ctx, { directory }), 'dsh-feishu-lark-cli: tools');
+
   sync();
   // 账号变化后由账号路由触发同步，这里不额外轮询。
   ctx.effect(() => () => {
@@ -143,6 +148,7 @@ export {
   PollingReceiver,
 } from './message.js';
 export { AccountDirectory } from './accounts.js';
+export { startLogin, completeLogin, parseCliJson, AuthRegistry } from './auth.js';
 export {
   createAccountRpc,
   registerAccountRpc,

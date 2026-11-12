@@ -46,12 +46,30 @@ export class AccountDirectory {
     return (this.db.prepare('SELECT * FROM account ORDER BY is_default DESC, name ASC').all() as any[]).map(toView);
   }
 
+  /**
+   * 用授权流程返回的身份登记账号。
+   *
+   * 与 {@link addFromProfile} 的区别：身份直接来自本次授权结果，
+   * 不再额外调用 `whoami`，避免授权刚完成时 token 尚未落盘导致读不到。
+   */
+  addIdentity(input: { profile: string; openId?: string; name?: string }): AccountView {
+    if (!input.openId) throw new Error('授权结果缺少用户 open_id，请重新授权');
+    return this.upsert({
+      profile: input.profile,
+      openId: input.openId,
+      name: input.name ?? input.openId,
+    });
+  }
+
   async addFromProfile(profile: string): Promise<AccountView> {
     const who = await runCli<{ onBehalfOf?: { userName?: string; openId?: string } }>(['whoami'], { profile });
     const user = who.data?.onBehalfOf;
     if (!who.ok || !user?.openId) throw new Error(this.describeError(String((who.error as any)?.code ?? (who.error as any)?.subtype ?? ""), who.error?.message));
-    const openId = user.openId;
-    const name = user.userName ?? openId;
+    return this.upsert({ profile, openId: user.openId, name: user.userName ?? user.openId });
+  }
+
+  private upsert(input: { profile: string; openId: string; name: string }): AccountView {
+    const { profile, openId, name } = input;
     const now = new Date().toISOString();
     const exists = this.db.prepare('SELECT id FROM account WHERE open_id = ? AND profile = ?').get(openId, profile) as any;
     const id = exists ? exists.id : `${profile}:${openId.slice(-8)}`;

@@ -105,6 +105,10 @@ test('暴露的方法列表与实现一致', () => {
   assert.deepEqual([...ACCOUNT_METHODS], [
     'account.list',
     'account.add',
+    'auth.status',
+    'auth.configure',
+    'auth.start',
+    'auth.complete',
     'account.setDefault',
     'account.setReceive',
     'account.remove',

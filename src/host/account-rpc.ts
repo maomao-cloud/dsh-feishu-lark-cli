@@ -1,4 +1,12 @@
 import type { AccountDirectory } from './accounts.js';
+import {
+  AuthRegistry,
+  completeLogin,
+  isConfigured,
+  startConfigInit,
+  startLogin,
+  type AuthAttempt,
+} from './auth.js';
 
 export type RpcHandler = (
   method: string,
@@ -36,41 +44,150 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function stringField(value: unknown, field: string): string {
   if (typeof value !== 'string' || value.trim() === '') throw new Error(`${field} 不能为空`);
-  return value;
+  return value.trim();
 }
 
 export const ACCOUNT_METHODS = [
   'account.list',
   'account.add',
+  'auth.status',
+  'auth.configure',
+  'auth.start',
+  'auth.complete',
   'account.setDefault',
   'account.setReceive',
   'account.remove',
 ] as const;
 
-export function createAccountRpc(directory: AccountDirectory): RpcHandler {
+export interface AccountRpcDeps {
+  directory: AccountDirectory;
+  /** 账号列表变化后同步轮询接收器。 */
+  onAccountsChanged?: () => void;
+}
+
+/**
+ * 账号管理 RPC。
+ *
+ * 授权拆成两步，避免阻塞浏览器请求：
+ *   - `auth.start` 发起设备码授权，返回授权链接与 attempt id；
+ *   - `auth.complete` 用 attempt id 结束授权并登记账号。
+ *
+ * device code 只留在服务端内存的 {@link AuthRegistry} 中。
+ */
+export function createAccountRpc(deps: AccountRpcDeps | AccountDirectory): RpcHandler {
+  const { directory, onAccountsChanged } = 'directory' in deps
+    ? deps
+    : { directory: deps as AccountDirectory, onAccountsChanged: undefined };
+  const registry = new AuthRegistry();
+
+  const changed = (accounts: unknown) => {
+    onAccountsChanged?.();
+    return accounts;
+  };
+
   return async (method, payload) => {
     try {
       const input = asRecord(payload ?? {});
       switch (method) {
         case 'account.list':
           return { ok: true, value: { accounts: directory.list() } };
-        case 'account.add':
+
+        case 'auth.status': {
+          const profile = typeof input.profile === 'string' && input.profile.trim() ? input.profile.trim() : 'default';
+          return { ok: true, value: { configured: await isConfigured(profile) } };
+        }
+
+        case 'auth.configure': {
+          // 应用配置需要用户在浏览器完成；这里返回链接后由前端轮询 auth.status。
+          const profile = typeof input.profile === 'string' && input.profile.trim() ? input.profile.trim() : 'default';
+          let resolveUrl: (url: string) => void = () => {};
+          const urlReady = new Promise<string>((resolve) => { resolveUrl = resolve; });
+          void startConfigInit(profile, (url) => resolveUrl(url));
+
+          const url = await Promise.race([
+            urlReady,
+            new Promise<string | undefined>((resolve) => setTimeout(() => resolve(undefined), 20_000)),
+          ]);
+          if (!url) {
+            return { ok: false, error: { code: 'config-link-missing', message: '未能生成应用配置链接，请稍后重试' } };
+          }
+          return { ok: true, value: { verificationUrl: url } };
+        }
+
+        case 'auth.start': {
+          const profile = typeof input.profile === 'string' && input.profile.trim() ? input.profile.trim() : 'default';
+          if (!(await isConfigured(profile))) {
+            return {
+              ok: false,
+              error: {
+                code: 'config-required',
+                message: '尚未完成飞书应用配置，请先点击「配置飞书应用」',
+              },
+            };
+          }
+          const started = await startLogin(profile);
+          const attempt: AuthAttempt = {
+            deviceCode: started.deviceCode,
+            verificationUrl: started.verificationUrl,
+            phase: 'pending',
+            startedAt: Date.now(),
+            expiresAt: Date.now() + (started.expiresIn ?? 600) * 1000,
+            profile,
+          };
+          const attemptId = registry.register(attempt);
           return {
             ok: true,
             value: {
-              accounts: directory.list(),
-              added: await directory.addFromProfile(stringField(input.profile, 'profile')),
+              attemptId,
+              verificationUrl: attempt.verificationUrl,
+              expiresAt: attempt.expiresAt,
             },
           };
+        }
+
+        case 'auth.complete': {
+          const attemptId = stringField(input.attemptId, 'attemptId');
+          const attempt = registry.get(attemptId);
+          if (!attempt) {
+            return { ok: false, error: { code: 'auth-attempt-missing', message: '授权会话不存在或已过期，请重新发起授权' } };
+          }
+          if (registry.isExpired(attempt)) {
+            registry.release(attemptId);
+            return { ok: false, error: { code: 'auth-attempt-expired', message: '授权链接已过期，请重新发起授权' } };
+          }
+
+          const result = await completeLogin(attempt.profile, attempt.deviceCode);
+          if (!result.ok) {
+            return { ok: false, error: { code: 'auth-incomplete', message: result.error ?? '尚未完成浏览器授权' } };
+          }
+
+          const added = await directory.addIdentity({
+            profile: attempt.profile,
+            openId: result.openId,
+            name: result.userName,
+          });
+          registry.release(attemptId);
+          return { ok: true, value: { added, accounts: changed(directory.list()) } };
+        }
+
+        case 'account.add':
+          return {
+            ok: true,
+            value: { accounts: changed(directory.list()), added: await directory.addFromProfile(stringField(input.profile, 'profile')) },
+          };
+
         case 'account.setDefault':
-          return { ok: true, value: { accounts: directory.setDefault(stringField(input.id, 'id')) } };
+          return { ok: true, value: { accounts: changed(directory.setDefault(stringField(input.id, 'id'))) } };
+
         case 'account.setReceive':
           return {
             ok: true,
-            value: { accounts: directory.setReceive(stringField(input.id, 'id'), input.enabled === true) },
+            value: { accounts: changed(directory.setReceive(stringField(input.id, 'id'), input.enabled === true)) },
           };
+
         case 'account.remove':
-          return { ok: true, value: { accounts: directory.remove(stringField(input.id, 'id')) } };
+          return { ok: true, value: { accounts: changed(directory.remove(stringField(input.id, 'id'))) } };
+
         default:
           return { ok: false, error: { code: 'unknown-method', message: `未知的飞书账号操作：${method}` } };
       }

@@ -24,7 +24,7 @@ export interface AccountItem {
   openId: string;
 }
 
-type RpcResult = { ok: boolean; value?: { accounts?: AccountItem[] }; error?: { message?: string } };
+type RpcResult = { ok: boolean; value?: Record<string, unknown> & { accounts?: AccountItem[] }; error?: { message?: string } };
 
 /** 账号展示名：姓名 · 机构，机构缺失时只显示姓名。 */
 export function accountLabel(account: AccountItem): string {
@@ -39,13 +39,23 @@ export function receiveLabel(account: AccountItem): string {
 
 const ENDPOINTS = {
   accounts: 'account.list',
+  authStatus: 'auth.status',
+  authConfigure: 'auth.configure',
+  authStart: 'auth.start',
+  authComplete: 'auth.complete',
   addAccount: 'account.add',
   setDefault: 'account.setDefault',
   setReceive: 'account.setReceive',
   remove: 'account.remove',
 } as const;
 
-type Call = (method: keyof typeof ENDPOINTS, payload?: Record<string, unknown>) => Promise<{ accounts?: AccountItem[]; error?: string }>;
+type CallResult = {
+  accounts?: AccountItem[];
+  error?: string;
+  value?: Record<string, unknown>;
+};
+
+type Call = (method: keyof typeof ENDPOINTS, payload?: Record<string, unknown>) => Promise<CallResult>;
 
 /** 通过 Connection 的通用 RPC 通道调用宿主账号接口。 */
 export function createAccountCaller(connection: any): Call {
@@ -61,7 +71,7 @@ export function createAccountCaller(connection: any): Call {
       if (!result?.ok) {
         return { error: result?.error?.message ?? '操作失败' };
       }
-      return { accounts: result.value?.accounts };
+      return { accounts: result.value?.accounts as AccountItem[] | undefined, value: result.value as Record<string, unknown> };
     } catch (error) {
       return { error: error instanceof Error ? error.message : String(error) };
     }
@@ -105,6 +115,7 @@ export function AccountsSection({ call }: { call: Call }) {
   const [accounts, setAccounts] = React.useState<AccountItem[]>([]);
   const [busy, setBusy] = React.useState(true);
   const [notice, setNotice] = React.useState<string | null>(null);
+  const [authUrl, setAuthUrl] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
   const refresh = React.useCallback(async () => {
@@ -121,17 +132,111 @@ export function AccountsSection({ call }: { call: Call }) {
 
   React.useEffect(() => { void refresh(); }, [refresh]);
 
-  const addAccount = async () => {
+  const openUrl = (url: string) => {
+    try {
+      globalThis.open?.(url, '_blank', 'noopener,noreferrer');
+    } catch {
+      // 弹窗被拦截时用户仍可点击页面上的链接。
+    }
+  };
+
+  /** 轮询直到 predicate 返回 true 或超时。 */
+  const poll = async (probe: () => Promise<boolean>, timeoutMs: number, intervalMs = 3000) => {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      if (await probe()) return true;
+    }
+    return false;
+  };
+
+  /** 第一步：飞书应用配置（每个 profile 只需一次）。 */
+  const configureApp = async () => {
     setBusy(true);
-    setNotice('正在读取 lark-cli 授权身份…');
-    const result = await call('addAccount', { profile: 'default' });
-    if (result.accounts) {
-      setAccounts(result.accounts);
-      setError(null);
-      setNotice('账号已添加');
-    } else {
-      setError(result.error ?? '添加账号失败');
+    setError(null);
+    setNotice('正在生成飞书应用配置链接…');
+
+    const started = await call('authConfigure', { profile: 'default' });
+    const url = started.value?.verificationUrl as string | undefined;
+    if (!url) {
+      setError(started.error ?? '无法生成应用配置链接');
       setNotice(null);
+      setBusy(false);
+      return;
+    }
+
+    setAuthUrl(url);
+    setNotice('已打开飞书应用配置页，完成后会自动继续。');
+    openUrl(url);
+
+    const configured = await poll(async () => {
+      const status = await call('authStatus', { profile: 'default' });
+      return status.value?.configured === true;
+    }, 5 * 60 * 1000);
+
+    setAuthUrl(null);
+    if (configured) {
+      setNotice('应用配置完成，可以开始授权账号了');
+      setError(null);
+    } else {
+      setError('应用配置未完成或超时，请重试');
+    }
+    setBusy(false);
+  };
+
+  /** 第二步：个人账号授权。 */
+  const startAuth = async () => {
+    setBusy(true);
+    setError(null);
+
+    const status = await call('authStatus', { profile: 'default' });
+    if (status.value?.configured !== true) {
+      setNotice(null);
+      setError('请先完成「配置飞书应用」');
+      setBusy(false);
+      return;
+    }
+
+    setNotice('正在生成飞书授权链接…');
+    const started = await call('authStart', { profile: 'default' });
+    const attemptId = started.value?.attemptId as string | undefined;
+    const verificationUrl = started.value?.verificationUrl as string | undefined;
+    if (!attemptId || !verificationUrl) {
+      setError(started.error ?? '无法生成授权链接');
+      setNotice(null);
+      setBusy(false);
+      return;
+    }
+
+    setAuthUrl(verificationUrl);
+    setNotice('已打开飞书授权页，完成授权后会自动继续。请保持本页面打开。');
+    openUrl(verificationUrl);
+
+    // 轮询等待用户完成浏览器授权；最长等待 5 分钟。
+    const deadline = Date.now() + 5 * 60 * 1000;
+    let completed = false;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      const result = await call('authComplete', { attemptId });
+      if (result.accounts) {
+        setAccounts(result.accounts);
+        setNotice('授权成功，账号已添加');
+        setError(null);
+        setAuthUrl(null);
+        completed = true;
+        break;
+      }
+      if (result.error && !/尚未完成|未完成授权/.test(result.error)) {
+        setError(result.error);
+        setAuthUrl(null);
+        completed = true;
+        break;
+      }
+    }
+
+    if (!completed) {
+      setError('授权超时，请重新点击「添加账号」');
+      setAuthUrl(null);
     }
     setBusy(false);
   };
@@ -140,6 +245,8 @@ export function AccountsSection({ call }: { call: Call }) {
     c('h2', { style: { margin: 0 } }, 'feishu-lark-cli · 飞书个人账号多账号管理'),
     error ? c('p', { style: { color: '#c0392b', margin: 0 } }, error) : null,
     notice ? c('p', { style: { opacity: .7, margin: 0 } }, notice) : null,
+    authUrl ? c('p', { style: { margin: 0 } },
+      c('a', { href: authUrl, target: '_blank', rel: 'noopener noreferrer' }, '打开飞书授权页')) : null,
     accounts.length === 0
       ? c('p', { style: { opacity: .7, margin: 0 } }, busy ? '加载中…' : '尚未添加飞书账号')
       : c('ul', { style: { listStyle: 'none', margin: 0, padding: 0 } },
@@ -151,7 +258,8 @@ export function AccountsSection({ call }: { call: Call }) {
           onChange: setAccounts,
         }))),
     c('div', { style: { display: 'flex', gap: 8 } },
-      c('button', { type: 'button', disabled: busy, onClick: () => void addAccount() }, '添加账号'),
+      c('button', { type: 'button', disabled: busy, onClick: () => void configureApp() }, '配置飞书应用'),
+      c('button', { type: 'button', disabled: busy, onClick: () => void startAuth() }, '添加账号'),
       c('button', { type: 'button', disabled: busy, onClick: () => void refresh() }, '刷新')));
 }
 
