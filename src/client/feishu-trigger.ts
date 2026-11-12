@@ -53,11 +53,13 @@ export function buildFeishuCandidates(
     for (const relation of account.relations) {
       if (!matched(relation.name)) continue;
       const kind = relation.type === 'user' ? '用户' : '群';
+      // 同名用户靠 openId 尾部区分；群靠名称基本已唯一。
+      const suffix = relation.type === 'user' ? relation.id.slice(-4) : '';
       candidates.push({
         // 载荷需要同时表达账号与目标，避免跨账号同名混淆。
         value: `${FEISHU_MENTION_SCHEME}:${account.accountId}:${relation.type}:${relation.id}`,
         label: relation.name,
-        description: `${kind}${relation.tenantKey ? ` · ${relation.tenantKey}` : ''}`,
+        description: `${kind}${suffix ? ` · ${suffix}` : ''}`,
         section,
       });
     }
@@ -79,6 +81,26 @@ export function parseMentionValue(value: string): {
   return { accountId, type, id };
 }
 
+/**
+ * 解析规范 mention 文本 `@[label](dsh-feishu:<accountId>:<type>:<id>)`。
+ *
+ * 候选的 name/value 与插入后的 ref 都使用这种形式，因此两个方向都要能解析。
+ */
+export function parseMentionRef(ref: string): {
+  accountId: string;
+  type: 'user' | 'chat';
+  id: string;
+} | undefined {
+  const match = ref.match(/\(([^)]+)\)$/);
+  if (!match) return undefined;
+  return parseMentionValue(match[1]);
+}
+
+/** 把内部载荷转成提交给模型的规范 mention 文本。 */
+export function toMentionRef(parsed: { accountId: string; type: 'user' | 'chat'; id: string }): string {
+  return `@[${parsed.accountId}:${parsed.type}:${parsed.id}](dsh-feishu:${parsed.accountId}:${parsed.type}:${parsed.id})`;
+}
+
 /** 创建可注册到 DSH 触发管线的来源定义。 */
 export function createFeishuTriggerSource(deps: {
   loadAccounts: () => Promise<AccountRelationView[]> | AccountRelationView[];
@@ -92,13 +114,18 @@ export function createFeishuTriggerSource(deps: {
       const accounts = await deps.loadAccounts();
       const candidates = buildFeishuCandidates(accounts, req.query ?? '');
       // 同名候选同时出现在多个账号时，用分组标题区分。
-      return candidates.map((item) => ({
-        name: item.value,
-        label: item.label,
-        description: item.description,
-        section: item.section,
-        value: item.value,
-      }));
+      return candidates.map((item) => {
+        const parsed = parseMentionValue(item.value)!;
+        const ref = toMentionRef(parsed);
+        return {
+          // name 是唯一键，必须是规范 ref；显示用 label。
+          name: ref,
+          label: item.label,
+          description: item.description,
+          section: item.section,
+          value: ref,
+        };
+      });
     },
     /**
      * 提交时的模型序列化。
@@ -113,22 +140,23 @@ export function createFeishuTriggerSource(deps: {
         return parsed ? `@${parsed.id}` : ref;
       },
       async serialize(ref: string) {
-        const parsed = parseMentionValue(ref);
-        if (!parsed) return ref;
-        return `@[${parsed.accountId}:${parsed.type}:${parsed.id}](${ref})`;
+        // 插入时 ref 已经是规范形式，原样提交即可。
+        return ref;
       },
     },
     onPick(pick: any) {
       const value = pick?.candidate?.value ?? '';
-      const parsed = parseMentionValue(value);
+      const parsed = parseMentionValue(value) ?? parseMentionRef(value);
       if (!parsed) return undefined;
       const label = pick?.candidate?.label ?? parsed.id;
       // PickOutcome 需要 { insert: ReferenceInsert }；clipboardText 是复制/持久化投影。
       return {
         insert: {
           source: FEISHU_SOURCE_NAME,
-          ref: value,
+          // ref 是序列化后的规范形式，而不是内部载荷，避免界面显示一长串 ID。
+          ref: toMentionRef(parsed),
           label,
+          appearance: 'session',
           clipboardText: `@${label}`,
         },
       };

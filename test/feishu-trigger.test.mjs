@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {
   buildFeishuCandidates,
   parseMentionValue,
+  parseMentionRef,
+  toMentionRef,
   createFeishuTriggerSource,
 } from '../lib/feishu-trigger.js';
 
@@ -100,4 +102,64 @@ test('onPick 返回 insertion 结果并保留 label', async () => {
 test('onPick 在非法载荷时返回 undefined，不产生错误插入', () => {
   const source = createFeishuTriggerSource({ loadAccounts: () => ACCOUNTS });
   assert.equal(source.onPick({ candidate: { value: 'garbage' } }), undefined);
+});
+
+test('候选 name 使用规范 mention，避免界面显示一长串 ID', async () => {
+  const source = createFeishuTriggerSource({ loadAccounts: () => ACCOUNTS });
+  const rows = await source.candidates({}, { query: '张三' });
+
+  for (const row of rows) {
+    // name 必须是 @[..](dsh-feishu:..) 形式，且能被解析回账号与目标。
+    assert.match(row.name, /^@\[.+\]\(dsh-feishu:.+\)$/);
+    assert.ok(parseMentionRef(row.name), `无法解析: ${row.name}`);
+  }
+});
+
+test('插入的 ref 与候选 name 一致，保证再次解析可用', async () => {
+  const source = createFeishuTriggerSource({ loadAccounts: () => ACCOUNTS });
+  const rows = await source.candidates({}, { query: '张三' });
+  const pick = source.onPick({ candidate: rows[0] });
+
+  assert.equal(pick.insert.ref, rows[0].name);
+  const parsed = parseMentionRef(pick.insert.ref);
+  assert.equal(parsed.accountId, 'accA');
+  assert.equal(parsed.type, 'user');
+});
+
+test('插入结果包含 appearance 与 clipboardText', async () => {
+  const source = createFeishuTriggerSource({ loadAccounts: () => ACCOUNTS });
+  const rows = await source.candidates({}, { query: '研发' });
+  const pick = source.onPick({ candidate: rows[0] });
+
+  assert.equal(typeof pick.insert.appearance, 'string');
+  assert.equal(pick.insert.clipboardText, '@研发群');
+});
+
+test('codec.serialize 原样返回规范 ref，不再二次包装', async () => {
+  const source = createFeishuTriggerSource({ loadAccounts: () => ACCOUNTS });
+  const rows = await source.candidates({}, { query: '研发' });
+  const serialized = await source.codec.serialize(rows[0].name);
+  assert.equal(serialized, rows[0].name);
+});
+
+test('同名用户描述带 openId 尾部以便区分', () => {
+  const candidates = buildFeishuCandidates(ACCOUNTS, '张三');
+  const descriptions = candidates.map((item) => item.description);
+  // 同一账号内同名时，尾 4 位必须不同，用户才能区分。
+  assert.equal(new Set(descriptions).size, descriptions.length);
+  for (const description of descriptions) {
+    assert.match(description, /^用户 · [0-9a-zA-Z_]+$/);
+  }
+});
+
+test('同名同尾位的真实场景可由 openId 全量区分载荷', () => {
+  const candidates = buildFeishuCandidates(ACCOUNTS, '张三');
+  const values = new Set(candidates.map((item) => item.value));
+  assert.equal(values.size, candidates.length);
+});
+
+test('toMentionRef 与 parseMentionRef 互为逆运算', () => {
+  const ref = toMentionRef({ accountId: 'accA', type: 'user', id: 'ou_a1' });
+  assert.equal(ref, '@[accA:user:ou_a1](dsh-feishu:accA:user:ou_a1)');
+  assert.deepEqual(parseMentionRef(ref), { accountId: 'accA', type: 'user', id: 'ou_a1' });
 });
