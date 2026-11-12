@@ -22,6 +22,10 @@ export interface AccountItem {
   receiveEnabled: boolean;
   authStatus: string;
   openId: string;
+  /** 所属 lark-cli profile（飞书 appId）。 */
+  profile?: string;
+  /** 所属飞书应用名称，用于区分同一应用下的多账号与不同应用。 */
+  appName?: string;
 }
 
 type RpcResult = { ok: boolean; value?: Record<string, unknown> & { accounts?: AccountItem[] }; error?: { message?: string } };
@@ -29,6 +33,13 @@ type RpcResult = { ok: boolean; value?: Record<string, unknown> & { accounts?: A
 /** 账号展示名：姓名 · 机构，机构缺失时只显示姓名。 */
 export function accountLabel(account: AccountItem): string {
   return account.tenantName ? `${account.name} · ${account.tenantName}` : account.name;
+}
+
+/** 账号所属应用的展示文案：优先用应用名，缺失时回退到 profile 标识。 */
+export function appLabel(account: AccountItem): string | undefined {
+  if (account.appName) return account.appName;
+  if (account.profile) return account.profile;
+  return undefined;
 }
 
 /** 接收状态文案：MVP 只有定时接收与已暂停两种。 */
@@ -91,7 +102,11 @@ function AccountRow({ account, call, busy, onChange }: {
   return c('li', {
     style: { display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: '1px solid rgba(0,0,0,.06)' },
   },
-  c('span', { style: { flex: 1 } }, accountLabel(account)),
+  c('span', { style: { flex: 1, display: 'grid', gap: 2 } },
+    c('span', null, accountLabel(account)),
+    appLabel(account)
+      ? c('span', { style: { fontSize: 12, opacity: .6 } }, `应用：${appLabel(account)}`)
+      : null),
   account.isDefault ? c('span', { style: { fontSize: 12, opacity: .7 } }, '默认账号') : null,
   c('span', { style: { fontSize: 12, opacity: .7 } }, receiveLabel(account)),
   c('button', {

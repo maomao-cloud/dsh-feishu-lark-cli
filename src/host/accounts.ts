@@ -20,6 +20,10 @@ export interface AccountView {
   receiveEnabled: boolean;
   authStatus: string;
   openId: string;
+  /** 该账号所在的 lark-cli profile（通常是飞书 appId）。 */
+  profile: string;
+  /** 飞书应用名称，同一应用下的多个账号共用；未取到时为空。 */
+  appName?: string;
 }
 
 function toView(row: any): AccountView {
@@ -31,6 +35,8 @@ function toView(row: any): AccountView {
     receiveEnabled: !!row.receive_enabled,
     authStatus: row.auth_status,
     openId: row.open_id,
+    profile: row.profile,
+    appName: row.app_name ?? undefined,
   };
 }
 

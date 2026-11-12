@@ -155,6 +155,7 @@ export {
   extractUrl,
   isConfigured,
   resolveActiveProfile,
+  fetchAppInfo,
   startConfigInit,
   AuthRegistry,
 } from './auth.js';

@@ -1,6 +1,7 @@
-import type { AccountDirectory } from './accounts.js';
+import type { AccountDirectory, AccountView } from './accounts.js';
 import {
   AuthRegistry,
+  fetchAppInfo,
   completeLogin,
   resolveActiveProfile,
   startConfigInit,
@@ -94,6 +95,31 @@ export function createAccountRpc(deps: AccountRpcDeps | AccountDirectory): RpcHa
     return active.name;
   };
 
+  /**
+   * 为账号补上所属应用名称。
+   *
+   * 应用名只能通过应用身份查 OpenAPI 得到，按 profile 缓存，
+   * 避免每次列表都发起网络请求；查询失败时静默降级为空。
+   */
+  const appNameCache = new Map<string, { name?: string; fetchedAt: number }>();
+  const appNameOf = async (profile: string): Promise<string | undefined> => {
+    const cached = appNameCache.get(profile);
+    if (cached && Date.now() - cached.fetchedAt < 10 * 60 * 1000) return cached.name;
+
+    const info = await fetchAppInfo(profile);
+    appNameCache.set(profile, { name: info?.name, fetchedAt: Date.now() });
+    return info?.name;
+  };
+
+  const decorateAccounts = async (accounts: AccountView[]) => {
+    const enriched: AccountView[] = [];
+    for (const account of accounts) {
+      const appName = account.profile ? await appNameOf(account.profile) : undefined;
+      enriched.push({ ...account, appName });
+    }
+    return enriched;
+  };
+
   const changed = (accounts: unknown) => {
     onAccountsChanged?.();
     return accounts;
@@ -104,7 +130,7 @@ export function createAccountRpc(deps: AccountRpcDeps | AccountDirectory): RpcHa
       const input = asRecord(payload ?? {});
       switch (method) {
         case 'account.list':
-          return { ok: true, value: { accounts: directory.list() } };
+          return { ok: true, value: { accounts: await decorateAccounts(directory.list()) } };
 
         case 'auth.status': {
           const active = await resolveActiveProfile();
@@ -191,28 +217,28 @@ export function createAccountRpc(deps: AccountRpcDeps | AccountDirectory): RpcHa
             name: result.userName,
           });
           registry.release(attemptId);
-          return { ok: true, value: { added, accounts: changed(directory.list()) } };
+          return { ok: true, value: { added, accounts: changed(await decorateAccounts(directory.list())) } };
         }
 
         case 'account.add': {
           const profile = await resolveProfile(input.profile);
           return {
             ok: true,
-            value: { accounts: changed(directory.list()), added: await directory.addFromProfile(profile) },
+            value: { accounts: changed(await decorateAccounts(directory.list())), added: await directory.addFromProfile(profile) },
           };
         }
 
         case 'account.setDefault':
-          return { ok: true, value: { accounts: changed(directory.setDefault(stringField(input.id, 'id'))) } };
+          return { ok: true, value: { accounts: changed(await decorateAccounts(directory.setDefault(stringField(input.id, 'id')))) } };
 
         case 'account.setReceive':
           return {
             ok: true,
-            value: { accounts: changed(directory.setReceive(stringField(input.id, 'id'), input.enabled === true)) },
+            value: { accounts: changed(await decorateAccounts(directory.setReceive(stringField(input.id, 'id'), input.enabled === true))) },
           };
 
         case 'account.remove':
-          return { ok: true, value: { accounts: changed(directory.remove(stringField(input.id, 'id'))) } };
+          return { ok: true, value: { accounts: changed(await decorateAccounts(directory.remove(stringField(input.id, 'id')))) } };
 
         default:
           return { ok: false, error: { code: 'unknown-method', message: `未知的飞书账号操作：${method}` } };

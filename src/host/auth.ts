@@ -88,6 +88,37 @@ export interface ActiveProfile {
 }
 
 /**
+ * 读取飞书应用本身的信息（名称、描述）。
+ *
+ * 该接口只接受应用身份（tenant token），用户 token 会返回
+ * `99991668 user access token not support`，因此固定使用 `--as bot`。
+ * 读取失败不影响授权流程，只是界面上不显示应用名。
+ */
+export async function fetchAppInfo(profile: string): Promise<{ name?: string; description?: string } | undefined> {
+  if (!profile) return undefined;
+  const args = [
+    '--profile',
+    profile,
+    'api',
+    'GET',
+    `/open-apis/application/v6/applications/${profile}`,
+    '--params',
+    JSON.stringify({ lang: 'zh_cn' }),
+    '--as',
+    'bot',
+  ];
+  const { text } = await runRaw(args, 30_000);
+  const parsed = parseCliJson(text);
+  if (parsed?.ok !== true) return undefined;
+  const app = parsed?.data?.app;
+  if (!app) return undefined;
+  return {
+    name: typeof app.app_name === 'string' ? app.app_name : undefined,
+    description: typeof app.description === 'string' ? app.description : undefined,
+  };
+}
+
+/**
  * 解析当前 lark-cli 生效的 profile。
  *
  * lark-cli 用 appId 作为 profile 名（例如 `cli_aa5441b4bbf9dcec`），
