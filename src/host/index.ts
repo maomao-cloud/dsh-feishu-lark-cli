@@ -125,8 +125,6 @@ export async function apply(ctx: any) {
   }, 'dsh-feishu-lark-cli: receivers');
 
   logger.info?.('[dsh-feishu-lark-cli] 服务已挂载');
-
-  return { directory, onMessage: bus.subscribe, syncReceivers: sync };
 }
 
 export { openDatabase, saveMessage } from './db.js';
