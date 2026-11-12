@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { CliResult } from '../shared/types.js';
 
@@ -10,6 +11,27 @@ export interface CliOptions {
 }
 
 const require = createRequire(import.meta.url);
+
+/**
+ * lark-cli 的持久化配置根目录。
+ *
+ * lark-cli 用 `XDG_CONFIG_HOME`（缺省 `$HOME/.config`）存放应用配置与 OAuth 凭证。
+ * 容器里的 `$HOME` 位于可写层，Pod 重建后授权全部丢失，因此这里固定指向
+ * DSH 的数据目录，保证重启后账号仍然有效。
+ */
+export function larkConfigHome(): string {
+  const explicit = process.env.DSH_FEISHU_LARK_CLI_CONFIG_HOME;
+  if (explicit) return explicit;
+  const dshHome = process.env.DSH_HOME ?? join(homedir(), '.dsh');
+  return join(dshHome, 'integrations', 'lark-cli-config');
+}
+
+/** 所有 lark-cli 子进程共用的环境变量，确保读到同一份凭证。 */
+export function larkCliEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const configHome = larkConfigHome();
+  mkdirSync(configHome, { recursive: true });
+  return { ...base, XDG_CONFIG_HOME: configHome };
+}
 
 /**
  * 解析固定版本 lark-cli 的可执行入口。
@@ -89,7 +111,7 @@ export function runCli<T = unknown>(args: string[], options: CliOptions = {}): P
       resolve(result);
     };
 
-    const child = spawn(file, argv, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(file, argv, { stdio: ['ignore', 'pipe', 'pipe'], env: larkCliEnv() });
 
     const timer = setTimeout(() => {
       child.kill('SIGTERM');

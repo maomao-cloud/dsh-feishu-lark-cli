@@ -133,7 +133,7 @@ export async function apply(ctx: any) {
 }
 
 export { openDatabase, saveMessage } from './db.js';
-export { runCli, resolveCliPath, supportsJsonFormat } from './cli.js';
+export { runCli, resolveCliPath, supportsJsonFormat, larkConfigHome, larkCliEnv } from './cli.js';
 export { defaultAccount, resolveContext } from './account.js';
 export { resolveMention } from './relation.js';
 export {

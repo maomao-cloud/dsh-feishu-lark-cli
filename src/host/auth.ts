@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { resolveCliPath } from './cli.js';
+import { larkCliEnv, resolveCliPath } from './cli.js';
 
 /** 授权尝试在内存中的生命周期状态（不落库）。 */
 export type AuthPhase = 'idle' | 'pending' | 'authorized' | 'failed' | 'expired';
@@ -39,7 +39,7 @@ function runRaw(args: string[], timeoutMs = 60_000): Promise<{ text: string; cod
       resolve(value);
     };
 
-    const child = spawn(command, [...prefix, ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(command, [...prefix, ...args], { stdio: ['ignore', 'pipe', 'pipe'], env: larkCliEnv() });
     const timer = setTimeout(() => {
       child.kill('SIGTERM');
       finish({ text: stderr.trim() || stdout.trim() || 'lark-cli 超时', code: null });
@@ -168,7 +168,7 @@ export function startConfigInit(profile: string, onUrl: (url: string) => void): 
   return new Promise((resolve) => {
     let buffer = '';
     let emitted = false;
-    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'], env: larkCliEnv() });
     const onData = (chunk: Buffer) => {
       buffer += chunk.toString();
       if (emitted) return;
