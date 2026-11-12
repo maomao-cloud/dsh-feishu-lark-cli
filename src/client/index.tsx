@@ -1,18 +1,18 @@
 /**
  * feishu-lark-cli 设置页客户端。
  *
- * 依赖由 DSH Web shell 提供的 React 实例（与 DSH-IM 等现有插件相同的注入方式）。
- * 这里的 UI 只负责：展示账号列表、扫码添加、设默认、开关接收、移除。
+ * 通过 DSH 网关的 `ctx.remote` 调用 Host 的 FeishuAccountService，
+ * 不使用自定义 /api 路由。
  */
 import * as React from 'react';
 
 export const name = 'dsh-feishu-lark-cli-client';
-export const inject = ['slots', 'connection'];
-
-/** 与宿主注册时使用的 method 标识保持一致。 */
-export const ACCOUNT_RPC_ENDPOINT = 'dsh-feishu-lark-cli/dsh-feishu-lark-cli';
+export const inject = ['slots', 'remote'];
 
 const c = React.createElement;
+
+/** Host 侧 FeishuAccountService 注册的 wire namespace。 */
+export const ACCOUNT_NAMESPACE = 'feishuLarkCli';
 
 export interface AccountItem {
   id: string;
@@ -24,18 +24,15 @@ export interface AccountItem {
   openId: string;
 }
 
-export interface AccountRpcResult {
-  ok: boolean;
-  value?: { accounts?: AccountItem[]; added?: AccountItem };
-  error?: { code: string; message: string };
-}
+type AccountsMethod = (signal?: AbortSignal) => Promise<{ ok: boolean; value?: { accounts: AccountItem[] }; error?: { message?: string } }>;
 
-export type AccountMethod =
-  | 'account.list'
-  | 'account.add'
-  | 'account.setDefault'
-  | 'account.setReceive'
-  | 'account.remove';
+interface AccountRemote {
+  accounts: AccountsMethod;
+  addAccount: (profile?: string, signal?: AbortSignal) => Promise<any>;
+  setDefault: (id: string, signal?: AbortSignal) => Promise<any>;
+  setReceive: (id: string, enabled: boolean, signal?: AbortSignal) => Promise<any>;
+  remove: (id: string, signal?: AbortSignal) => Promise<any>;
+}
 
 /** 账号展示名：姓名 · 机构，机构缺失时只显示姓名。 */
 export function accountLabel(account: AccountItem): string {
@@ -48,21 +45,33 @@ export function receiveLabel(account: AccountItem): string {
   return account.receiveEnabled ? '定时接收' : '已暂停';
 }
 
-export function createAccountClient(connection: any) {
-  return async (method: AccountMethod, payload: Record<string, unknown>): Promise<AccountRpcResult> => {
+/** 从 ctx.remote 取账号命名空间；缺失时返回 undefined 由界面提示。 */
+export function accountRemote(ctx: any): AccountRemote | undefined {
+  try {
+    return ctx?.remote?.feishuLarkCli;
+  } catch {
+    return undefined;
+  }
+}
+
+type Call = (method: keyof AccountRemote, ...args: unknown[]) => Promise<{ accounts?: AccountItem[]; error?: string }>;
+
+export function createAccountCaller(remote: AccountRemote | undefined): Call {
+  return async (method, ...args) => {
+    if (!remote || typeof (remote as any)[method] !== 'function') {
+      return { error: '飞书账号服务未就绪，请重启 DSH 后再试' };
+    }
     try {
-      const result = await connection.rpc.call('/api', ACCOUNT_RPC_ENDPOINT, { method, payload });
-      return result ?? { ok: false, error: { code: 'empty', message: '管理接口没有返回结果' } };
+      const result = await (remote as any)[method](...args);
+      if (result?.ok === false) {
+        return { error: result.error?.message ?? '操作失败' };
+      }
+      return { accounts: result?.value?.accounts };
     } catch (error) {
-      return {
-        ok: false,
-        error: { code: 'transport', message: error instanceof Error ? error.message : String(error) },
-      };
+      return { error: error instanceof Error ? error.message : String(error) };
     }
   };
 }
-
-type Call = (method: AccountMethod, payload: Record<string, unknown>) => Promise<AccountRpcResult>;
 
 function AccountRow({ account, call, busy, onChange }: {
   account: AccountItem;
@@ -70,9 +79,9 @@ function AccountRow({ account, call, busy, onChange }: {
   busy: boolean;
   onChange: (accounts: AccountItem[]) => void;
 }) {
-  const run = async (method: AccountMethod, payload: Record<string, unknown>) => {
-    const result = await call(method, payload);
-    if (result.ok && result.value?.accounts) onChange(result.value.accounts);
+  const run = async (method: keyof AccountRemote, ...args: unknown[]) => {
+    const result = await call(method, ...args);
+    if (result.accounts) onChange(result.accounts);
   };
   return c('li', {
     style: { display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: '1px solid rgba(0,0,0,.06)' },
@@ -83,17 +92,17 @@ function AccountRow({ account, call, busy, onChange }: {
   c('button', {
     type: 'button',
     disabled: busy || account.isDefault,
-    onClick: () => void run('account.setDefault', { id: account.id }),
+    onClick: () => void run('setDefault', account.id),
   }, '设为默认'),
   c('button', {
     type: 'button',
     disabled: busy,
-    onClick: () => void run('account.setReceive', { id: account.id, enabled: !account.receiveEnabled }),
+    onClick: () => void run('setReceive', account.id, !account.receiveEnabled),
   }, account.receiveEnabled ? '暂停接收' : '开启接收'),
   c('button', {
     type: 'button',
     disabled: busy,
-    onClick: () => void run('account.remove', { id: account.id }),
+    onClick: () => void run('remove', account.id),
   }, '移除'));
 }
 
@@ -105,12 +114,12 @@ export function AccountsSection({ call }: { call: Call }) {
 
   const refresh = React.useCallback(async () => {
     setBusy(true);
-    const result = await call('account.list', {});
-    if (result.ok && result.value?.accounts) {
-      setAccounts(result.value.accounts);
+    const result = await call('accounts');
+    if (result.accounts) {
+      setAccounts(result.accounts);
       setError(null);
     } else {
-      setError(result.error?.message ?? '读取账号列表失败');
+      setError(result.error ?? '读取账号列表失败');
     }
     setBusy(false);
   }, [call]);
@@ -119,14 +128,14 @@ export function AccountsSection({ call }: { call: Call }) {
 
   const addAccount = async () => {
     setBusy(true);
-    setNotice('正在读取授权账号身份…');
-    const result = await call('account.add', { profile: 'default' });
-    if (result.ok && result.value?.accounts) {
-      setAccounts(result.value.accounts);
+    setNotice('正在读取 lark-cli 授权身份…');
+    const result = await call('addAccount', 'default');
+    if (result.accounts) {
+      setAccounts(result.accounts);
       setError(null);
       setNotice('账号已添加');
     } else {
-      setError(result.error?.message ?? '添加账号失败');
+      setError(result.error ?? '添加账号失败');
       setNotice(null);
     }
     setBusy(false);
@@ -152,7 +161,8 @@ export function AccountsSection({ call }: { call: Call }) {
 }
 
 export function apply(ctx: any) {
-  const call = createAccountClient(ctx.connection);
+  const remote = accountRemote(ctx);
+  const call = createAccountCaller(remote);
   const effect = typeof ctx.effect === 'function' ? ctx.effect.bind(ctx) : (fn: () => () => void) => {
     const dispose = fn();
     return () => dispose?.();
@@ -162,7 +172,7 @@ export function apply(ctx: any) {
     id: 'dsh-feishu-lark-cli',
     order: 22,
     label: () => 'feishu-lark-cli',
-    inject: () => ['connection'],
+    inject: () => ['remote'],
   }, () => AccountsSection({ call }))), 'dsh-feishu-lark-cli: settings section');
 }
 

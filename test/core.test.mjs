@@ -18,7 +18,7 @@ test('client bundle registers a DSH ModuleLoader factory', () => {
       return {createElement: (...args) => ({args})};
     });
     assert.equal(typeof mod.apply, 'function');
-    assert.deepEqual(mod.inject, ['slots', 'connection']);
+    assert.deepEqual(mod.inject, ['slots', 'remote']);
     assert.equal(typeof mod.install, 'function');
   } finally {
     delete globalThis.window;
