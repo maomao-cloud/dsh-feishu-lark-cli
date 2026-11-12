@@ -78,11 +78,47 @@ export function extractUrl(text: string): string | undefined {
   return cleaned.match(/https:\/\/[^\s`'"]+/)?.[0];
 }
 
-/** 判断 lark-cli 是否已完成应用配置（config init）。 */
-export async function isConfigured(profile: string): Promise<boolean> {
-  const args = [...(profile ? ['--profile', profile] : []), 'auth', 'list'];
-  const { text } = await runRaw(args, 30_000);
-  return !/not configured/.test(text) && !/"subtype"\s*:\s*"not_configured"/.test(text);
+export interface ActiveProfile {
+  /** lark-cli profile 名（通常是 appId）。 */
+  name: string;
+  appId?: string;
+  brand?: string;
+  /** 该 profile 下最近的登录用户，若未登录则为 undefined。 */
+  user?: { userName?: string; openId?: string };
+}
+
+/**
+ * 解析当前 lark-cli 生效的 profile。
+ *
+ * lark-cli 用 appId 作为 profile 名（例如 `cli_aa5441b4bbf9dcec`），
+ * 不存在名为 `default` 的 profile。这里以 `profile list` 的实际输出为准，
+ * 避免硬编码导致的 "profile not found"。
+ */
+export async function resolveActiveProfile(): Promise<ActiveProfile | undefined> {
+  const { text } = await runRaw(['profile', 'list'], 30_000);
+  const list = parseCliJson(text);
+  if (!Array.isArray(list) || list.length === 0) return undefined;
+
+  const entries = list.filter((item) => typeof item?.name === 'string' && item.name.trim() !== '');
+  if (entries.length === 0) return undefined;
+
+  const active = entries.find((item) => item.active === true && item.effective !== false) ?? entries[0];
+  return {
+    name: active.name,
+    appId: typeof active.appId === 'string' ? active.appId : undefined,
+    brand: typeof active.brand === 'string' ? active.brand : undefined,
+    user: active.user
+      ? {
+        userName: typeof active.user === 'string' ? active.user : active.user?.userName,
+        openId: active.user?.openId,
+      }
+      : undefined,
+  };
+}
+
+/** 判断 lark-cli 是否已完成应用配置（存在可用 profile）。 */
+export async function isConfigured(_profile?: string): Promise<boolean> {
+  return (await resolveActiveProfile()) !== undefined;
 }
 
 /**
@@ -95,7 +131,8 @@ export function startConfigInit(profile: string, onUrl: (url: string) => void): 
   const cli = resolveCliPath();
   const command = cli.endsWith('.js') ? process.execPath : cli;
   const prefix = cli.endsWith('.js') ? [cli] : [];
-  const args = [...prefix, ...(profile ? ['--profile', profile] : []), 'config', 'init', '--new'];
+  const useProfile = profile && profile !== 'default' ? ['--profile', profile] : [];
+  const args = [...prefix, ...useProfile, 'config', 'init', '--new'];
 
   return new Promise((resolve) => {
     let buffer = '';
@@ -128,7 +165,7 @@ export function startConfigInit(profile: string, onUrl: (url: string) => void): 
  */
 export async function startLogin(profile: string): Promise<Omit<AuthAttempt, 'phase' | 'startedAt' | 'expiresAt'> & { expiresIn?: number }> {
   const args = [
-    ...(profile ? ['--profile', profile] : []),
+    ...(profile && profile !== 'default' ? ['--profile', profile] : []),
     'auth',
     'login',
     '--domain',
@@ -159,7 +196,14 @@ export async function completeLogin(
   profile: string,
   deviceCode: string,
 ): Promise<{ ok: boolean; userName?: string; openId?: string; error?: string }> {
-  const args = [...(profile ? ['--profile', profile] : []), 'auth', 'login', '--device-code', deviceCode, '--json'];
+  const args = [
+    ...(profile && profile !== 'default' ? ['--profile', profile] : []),
+    'auth',
+    'login',
+    '--device-code',
+    deviceCode,
+    '--json',
+  ];
   const { text } = await runRaw(args, 180_000);
   const parsed = parseCliJson(text);
 

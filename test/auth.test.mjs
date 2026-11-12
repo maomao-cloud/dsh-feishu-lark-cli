@@ -9,6 +9,7 @@ import {
   parseCliJson,
   startLogin,
   completeLogin,
+  resolveActiveProfile,
   AuthRegistry,
 } from '../lib/index.js';
 
@@ -89,6 +90,24 @@ process.stdout.write(JSON.stringify({ ok: false, error: { message: '用户未完
   assert.match(result.error, /未完成授权/);
 });
 
+test('resolveActiveProfile 从 profile list 解析当前生效 profile', async (t) => {
+  const dir = temporaryDirectory();
+  withCli(fakeCli(dir, `
+process.stdout.write(JSON.stringify([
+  { name: 'cli_aaa', active: false, effective: false },
+  { name: 'cli_bbb', active: true, effective: true, appId: 'cli_bbb' },
+]));`), t);
+  const active = await resolveActiveProfile();
+  assert.equal(active.name, 'cli_bbb');
+  assert.equal(active.appId, 'cli_bbb');
+});
+
+test('未配置时 resolveActiveProfile 返回 undefined', async (t) => {
+  const dir = temporaryDirectory();
+  withCli(fakeCli(dir, 'process.stdout.write("not configured");'), t);
+  assert.equal(await resolveActiveProfile(), undefined);
+});
+
 test('AuthRegistry 过期后不再返回尝试记录', () => {
   const registry = new AuthRegistry();
   const id = registry.register({
@@ -105,11 +124,16 @@ test('AuthRegistry 过期后不再返回尝试记录', () => {
 test('auth.start 不上发 device code，只返回授权链接', async (t) => {
   const dir = temporaryDirectory();
   withCli(fakeCli(dir, `
-process.stdout.write(JSON.stringify({
-  device_code: 'secret-device-code',
-  verification_url: 'https://example.com/verify',
-  expires_in: 600,
-}));`), t);
+const args = process.argv.slice(2).join(' ');
+if (args.includes('profile list')) {
+  process.stdout.write(JSON.stringify([{ name: 'cli_test', active: true, effective: true }]));
+} else {
+  process.stdout.write(JSON.stringify({
+    device_code: 'secret-device-code',
+    verification_url: 'https://example.com/verify',
+    expires_in: 600,
+  }));
+}`), t);
 
   const directory = new AccountDirectory(join(dir, 'feishu.db'));
   const handler = createAccountRpc(directory);
@@ -126,7 +150,9 @@ test('auth.complete 用授权身份登记账号并触发同步回调', async (t)
   // 同一个假 CLI 同时服务 auth login 与 whoami
   withCli(fakeCli(dir, `
 const args = process.argv.slice(2).join(' ');
-if (args.includes('--no-wait')) {
+if (args.includes('profile list')) {
+  process.stdout.write(JSON.stringify([{ name: 'cli_test', active: true, effective: true }]));
+} else if (args.includes('--no-wait')) {
   process.stdout.write(JSON.stringify({ device_code: 'd1', verification_url: 'https://e/v', expires_in: 600 }));
 } else if (args.includes('--device-code')) {
   process.stdout.write(JSON.stringify({ event: 'authorization_complete', user_name: '刘珂', user_open_id: 'ou_xyz' }));
@@ -164,7 +190,9 @@ test('auth.complete 在授权未完成时保留错误信息', async (t) => {
   const dir = temporaryDirectory();
   withCli(fakeCli(dir, `
 const args = process.argv.slice(2).join(' ');
-if (args.includes('--no-wait')) {
+if (args.includes('profile list')) {
+  process.stdout.write(JSON.stringify([{ name: 'cli_test', active: true, effective: true }]));
+} else if (args.includes('--no-wait')) {
   process.stdout.write(JSON.stringify({ device_code: 'd1', verification_url: 'https://e/v' }));
 } else {
   process.stdout.write(JSON.stringify({ ok: false, error: { message: '用户拒绝授权' } }));

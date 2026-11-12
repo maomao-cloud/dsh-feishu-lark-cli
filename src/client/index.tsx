@@ -156,7 +156,7 @@ export function AccountsSection({ call }: { call: Call }) {
     setError(null);
     setNotice('正在生成飞书应用配置链接…');
 
-    const started = await call('authConfigure', { profile: 'default' });
+    const started = await call('authConfigure');
     const url = started.value?.verificationUrl as string | undefined;
     if (!url) {
       setError(started.error ?? '无法生成应用配置链接');
@@ -170,7 +170,7 @@ export function AccountsSection({ call }: { call: Call }) {
     openUrl(url);
 
     const configured = await poll(async () => {
-      const status = await call('authStatus', { profile: 'default' });
+      const status = await call('authStatus');
       return status.value?.configured === true;
     }, 5 * 60 * 1000);
 
@@ -189,7 +189,7 @@ export function AccountsSection({ call }: { call: Call }) {
     setBusy(true);
     setError(null);
 
-    const status = await call('authStatus', { profile: 'default' });
+    const status = await call('authStatus');
     if (status.value?.configured !== true) {
       setNotice(null);
       setError('请先完成「配置飞书应用」');
@@ -198,7 +198,7 @@ export function AccountsSection({ call }: { call: Call }) {
     }
 
     setNotice('正在生成飞书授权链接…');
-    const started = await call('authStart', { profile: 'default' });
+    const started = await call('authStart');
     const attemptId = started.value?.attemptId as string | undefined;
     const verificationUrl = started.value?.verificationUrl as string | undefined;
     if (!attemptId || !verificationUrl) {

@@ -107,8 +107,18 @@ export function runCli<T = unknown>(args: string[], options: CliOptions = {}): P
     child.on('close', (code) => {
       const text = stdout.trim() || stderr.trim();
       try {
-        const parsed = JSON.parse(text) as CliResult<T>;
-        finish(parsed);
+        const parsed = JSON.parse(text) as Record<string, unknown>;
+        // 部分命令（如 whoami、profile list）直接输出裸对象/数组，没有 ok 字段。
+        // 这里统一补齐 ok，避免调用方把 undefined 当成结果。
+        if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) && !('ok' in parsed)) {
+          finish({ ok: true, data: parsed as T });
+          return;
+        }
+        if (Array.isArray(parsed)) {
+          finish({ ok: true, data: parsed as unknown as T });
+          return;
+        }
+        finish(parsed as unknown as CliResult<T>);
       } catch {
         finish({
           ok: false,

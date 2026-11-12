@@ -2,7 +2,7 @@ import type { AccountDirectory } from './accounts.js';
 import {
   AuthRegistry,
   completeLogin,
-  isConfigured,
+  resolveActiveProfile,
   startConfigInit,
   startLogin,
   type AuthAttempt,
@@ -80,6 +80,20 @@ export function createAccountRpc(deps: AccountRpcDeps | AccountDirectory): RpcHa
     : { directory: deps as AccountDirectory, onAccountsChanged: undefined };
   const registry = new AuthRegistry();
 
+  /**
+   * 解析本次操作使用的 lark-cli profile。
+   *
+   * 显式传入且真实存在时优先使用；否则回退到当前生效 profile（通常是 appId）。
+   */
+  const resolveProfile = async (requested?: unknown): Promise<string> => {
+    const active = await resolveActiveProfile();
+    if (typeof requested === 'string' && requested.trim() && requested.trim() !== 'default') {
+      return requested.trim();
+    }
+    if (!active) throw new Error('尚未完成飞书应用配置，请先点击「配置飞书应用」');
+    return active.name;
+  };
+
   const changed = (accounts: unknown) => {
     onAccountsChanged?.();
     return accounts;
@@ -93,13 +107,21 @@ export function createAccountRpc(deps: AccountRpcDeps | AccountDirectory): RpcHa
           return { ok: true, value: { accounts: directory.list() } };
 
         case 'auth.status': {
-          const profile = typeof input.profile === 'string' && input.profile.trim() ? input.profile.trim() : 'default';
-          return { ok: true, value: { configured: await isConfigured(profile) } };
+          const active = await resolveActiveProfile();
+          return {
+            ok: true,
+            value: {
+              configured: active !== undefined,
+              profile: active?.name,
+              appId: active?.appId,
+            },
+          };
         }
 
         case 'auth.configure': {
           // 应用配置需要用户在浏览器完成；这里返回链接后由前端轮询 auth.status。
-          const profile = typeof input.profile === 'string' && input.profile.trim() ? input.profile.trim() : 'default';
+          // 配置阶段还没有 profile，因此不传 --profile，由 lark-cli 新建。
+          const profile = typeof input.profile === 'string' ? input.profile.trim() : '';
           let resolveUrl: (url: string) => void = () => {};
           const urlReady = new Promise<string>((resolve) => { resolveUrl = resolve; });
           void startConfigInit(profile, (url) => resolveUrl(url));
@@ -115,13 +137,15 @@ export function createAccountRpc(deps: AccountRpcDeps | AccountDirectory): RpcHa
         }
 
         case 'auth.start': {
-          const profile = typeof input.profile === 'string' && input.profile.trim() ? input.profile.trim() : 'default';
-          if (!(await isConfigured(profile))) {
+          let profile: string;
+          try {
+            profile = await resolveProfile(input.profile);
+          } catch (error) {
             return {
               ok: false,
               error: {
                 code: 'config-required',
-                message: '尚未完成飞书应用配置，请先点击「配置飞书应用」',
+                message: error instanceof Error ? error.message : '尚未完成飞书应用配置',
               },
             };
           }
@@ -170,11 +194,13 @@ export function createAccountRpc(deps: AccountRpcDeps | AccountDirectory): RpcHa
           return { ok: true, value: { added, accounts: changed(directory.list()) } };
         }
 
-        case 'account.add':
+        case 'account.add': {
+          const profile = await resolveProfile(input.profile);
           return {
             ok: true,
-            value: { accounts: changed(directory.list()), added: await directory.addFromProfile(stringField(input.profile, 'profile')) },
+            value: { accounts: changed(directory.list()), added: await directory.addFromProfile(profile) },
           };
+        }
 
         case 'account.setDefault':
           return { ok: true, value: { accounts: changed(directory.setDefault(stringField(input.id, 'id'))) } };

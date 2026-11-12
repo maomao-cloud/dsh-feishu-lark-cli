@@ -148,7 +148,16 @@ export {
   PollingReceiver,
 } from './message.js';
 export { AccountDirectory } from './accounts.js';
-export { startLogin, completeLogin, parseCliJson, AuthRegistry } from './auth.js';
+export {
+  startLogin,
+  completeLogin,
+  parseCliJson,
+  extractUrl,
+  isConfigured,
+  resolveActiveProfile,
+  startConfigInit,
+  AuthRegistry,
+} from './auth.js';
 export {
   createAccountRpc,
   registerAccountRpc,

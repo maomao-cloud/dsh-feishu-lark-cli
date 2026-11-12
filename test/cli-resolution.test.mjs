@@ -39,15 +39,20 @@ test('未显式指定路径时解析到插件自带的 @larksuite/cli', async ()
   });
 });
 
-test('解析出的自带 CLI 可正常返回 JSON 信封', async () => {
+test('解析出的自带 CLI 可执行且返回结构化结果', async () => {
   await withCliPath(undefined, async () => {
     const before = process.cwd();
     const dir = temporaryDirectory();
     process.chdir(dir);
     try {
-      // 未授权时 whoami 会返回错误信封，但进程本身必须可执行并产出 JSON。
+      // 未授权时返回错误信封；授权后返回成功信封。
+      // 这里只要求「进程可执行且给出结构化结果」，不绑定具体授权状态。
       const result = await runCli(['whoami'], { timeoutMs: 60000 });
+      assert.equal(typeof result, 'object');
       assert.equal(typeof result.ok, 'boolean');
+      if (result.ok === false) {
+        assert.equal(typeof result.error?.type, 'string');
+      }
     } finally {
       process.chdir(before);
     }
