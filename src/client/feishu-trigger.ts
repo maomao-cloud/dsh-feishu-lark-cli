@@ -97,7 +97,9 @@ export function parseMentionRef(ref: string): {
 }
 
 /** 把内部载荷转成提交给模型的规范 mention 文本。 */
-export function toMentionRef(parsed: { accountId: string; type: 'user' | 'chat'; id: string }): string {
+export function toMentionRef(parsed: { accountId: string; type: 'user' | 'chat'; id: string } | undefined): string {
+  // RPC/旧缓存中的异常候选不能让整个 @ 来源崩溃；调用方会过滤空 ref。
+  if (!parsed?.accountId || !parsed.id || (parsed.type !== 'user' && parsed.type !== 'chat')) return '';
   return `@[${parsed.accountId}:${parsed.type}:${parsed.id}](dsh-feishu:${parsed.accountId}:${parsed.type}:${parsed.id})`;
 }
 
@@ -114,17 +116,20 @@ export function createFeishuTriggerSource(deps: {
       const accounts = await deps.loadAccounts();
       const candidates = buildFeishuCandidates(accounts, req.query ?? '');
       // 同名候选同时出现在多个账号时，用分组标题区分。
-      return candidates.map((item) => {
-        const parsed = parseMentionValue(item.value)!;
+      return candidates.flatMap((item) => {
+        // Host/RPC 数据可能在旧版本或空数据库期间缺少 value；不要让单条脏数据
+        // 让整个 `@` 来源失败。规范 ref 和内部载荷两种形式都兼容。
+        const parsed = parseMentionValue(item.value) ?? parseMentionRef(item.value);
+        if (!parsed?.accountId || !parsed.id) return [];
         const ref = toMentionRef(parsed);
-        return {
+        return [{
           // name 是唯一键，必须是规范 ref；显示用 label。
           name: ref,
-          label: item.label,
+          label: item.label || parsed.id,
           description: item.description,
           section: item.section,
           value: ref,
-        };
+        }];
       });
     },
     /**

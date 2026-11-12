@@ -329,23 +329,27 @@ export function AccountsSection({ call }: { call: Call }) {
 export function apply(ctx: any) {
   const call = createAccountCaller(ctx.connection);
 
-  // 挂接输入框 @ 管线：与文件/会话引用并列，不覆盖。
-  const triggers = ctx.get?.('inputTriggers') ?? ctx.inputTriggers;
-  if (typeof triggers?.registerSource === 'function') {
-    const source = createFeishuTriggerSource({
-      loadAccounts: async () => {
-        const result = await call('relationCatalog');
-        const accounts = (result.value?.accounts ?? []) as any[];
-        return accounts.map((account) => ({
-          accountId: account.accountId,
-          accountName: account.accountName,
-          appName: account.appName,
-          isCurrent: account.isCurrent === true,
-          relations: account.relations ?? [],
-        }));
-      },
+  const source = createFeishuTriggerSource({
+    loadAccounts: async () => {
+      const result = await call('relationCatalog');
+      const accounts = (result.value?.accounts ?? []) as any[];
+      return accounts.map((account) => ({
+        accountId: account.accountId,
+        accountName: account.accountName,
+        appName: account.appName,
+        isCurrent: account.isCurrent === true,
+        relations: account.relations ?? [],
+      }));
+    },
+  });
+
+  // 挂接输入框 @ 管线：等 inputTriggers 服务就绪后再注册，
+  // 与文件/会话引用并列，不覆盖。服务卸载时由 ctx 统一回收。
+  if (typeof ctx.inject === 'function') {
+    ctx.inject(['inputTriggers'], (scope: any) => {
+      const registered = scope.inputTriggers?.registerSource(source);
+      return typeof registered === 'function' ? registered : () => {};
     });
-    ctx.effect(() => triggers.registerSource(source), 'dsh-feishu-lark-cli: @ source');
   }
 
   const effect = typeof ctx.effect === 'function' ? ctx.effect.bind(ctx) : (fn: () => () => void) => {
