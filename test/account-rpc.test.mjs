@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { AccountDirectory, createAccountRpc, ACCOUNT_METHODS } from '../lib/index.js';
+import { AccountDirectory, createAccountRpc, registerAccountRpc, ACCOUNT_METHODS, ACCOUNT_RPC_ENDPOINT, ACCOUNT_RPC_PATH } from '../lib/index.js';
 
 function temporaryDirectory() {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-feishu-lark-cli-rpc-'));
@@ -83,4 +83,26 @@ test('暴露的 RPC 方法列表与实现一致', () => {
     'account.setReceive',
     'account.remove',
   ]);
+});
+
+test('注册路径与客户端调用路径一致，且通道以 / 开头', () => {
+  const directory = seeded();
+  let registered;
+  const ctx = {
+    connection: {
+      fetch: {
+        register(options) {
+          registered = options;
+          return () => {};
+        },
+      },
+    },
+  };
+
+  registerAccountRpc(ctx, createAccountRpc(directory));
+
+  // 注册路径与客户端调用通道由同一常量推导，必须一致。
+  assert.equal(registered.path, ACCOUNT_RPC_PATH);
+  assert.equal(ACCOUNT_RPC_PATH, `/api/${ACCOUNT_RPC_ENDPOINT}`);
+  assert.equal(registered.path, '/api/dsh-feishu-lark-cli/dsh-feishu-lark-cli');
 });

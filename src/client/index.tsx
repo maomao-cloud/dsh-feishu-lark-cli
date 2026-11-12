@@ -9,7 +9,8 @@ import * as React from 'react';
 export const name = 'dsh-feishu-lark-cli-client';
 export const inject = ['slots', 'connection'];
 
-export const ACCOUNT_RPC_ENDPOINT = 'dsh-feishu-lark-cli';
+/** 与宿主注册时使用的 method 标识保持一致。 */
+export const ACCOUNT_RPC_ENDPOINT = 'dsh-feishu-lark-cli/dsh-feishu-lark-cli';
 
 const c = React.createElement;
 

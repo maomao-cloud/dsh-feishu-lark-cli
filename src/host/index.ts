@@ -137,6 +137,13 @@ export {
   PollingReceiver,
 } from './message.js';
 export { AccountDirectory } from './accounts.js';
-export { createAccountRpc, registerAccountRpc, ACCOUNT_METHODS, ACCOUNT_RPC_ENDPOINT } from './account-rpc.js';
+export {
+  createAccountRpc,
+  registerAccountRpc,
+  ACCOUNT_METHODS,
+  ACCOUNT_RPC_CHANNEL,
+  ACCOUNT_RPC_ENDPOINT,
+  ACCOUNT_RPC_PATH,
+} from './account-rpc.js';
 export { registerFeishuTools, pickAccount, resolveTarget, normalizeDocumentToken } from './tools.js';
 export default FeishuLarkCliService;
