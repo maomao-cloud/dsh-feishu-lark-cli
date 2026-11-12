@@ -1,18 +1,18 @@
 /**
  * feishu-lark-cli 设置页客户端。
  *
- * 通过 DSH 网关的 `ctx.remote` 调用 Host 的 FeishuAccountService，
- * 不使用自定义 /api 路由。
+ * 对齐 DSH-IM 已验证的多账号实现：通过 `connection.rpc.call('/api', endpoint)`
+ * 调用宿主注册的精确路由，不使用需要构建期 Generator 的 Typert Remote。
  */
 import * as React from 'react';
 
 export const name = 'dsh-feishu-lark-cli-client';
-export const inject = ['slots', 'remote'];
+export const inject = ['slots', 'connection'];
 
 const c = React.createElement;
 
-/** Host 侧 FeishuAccountService 注册的 wire namespace。 */
-export const ACCOUNT_NAMESPACE = 'feishuLarkCli';
+/** 与宿主 account-rpc.ts 保持一致：通道路径为 /api/dsh-feishu-lark-cli/feishu-lark-cli。 */
+export const ACCOUNT_RPC_ENDPOINT = 'dsh-feishu-lark-cli/feishu-lark-cli';
 
 export interface AccountItem {
   id: string;
@@ -24,15 +24,7 @@ export interface AccountItem {
   openId: string;
 }
 
-type AccountsMethod = (signal?: AbortSignal) => Promise<{ ok: boolean; value?: { accounts: AccountItem[] }; error?: { message?: string } }>;
-
-interface AccountRemote {
-  accounts: AccountsMethod;
-  addAccount: (profile?: string, signal?: AbortSignal) => Promise<any>;
-  setDefault: (id: string, signal?: AbortSignal) => Promise<any>;
-  setReceive: (id: string, enabled: boolean, signal?: AbortSignal) => Promise<any>;
-  remove: (id: string, signal?: AbortSignal) => Promise<any>;
-}
+type RpcResult = { ok: boolean; value?: { accounts?: AccountItem[] }; error?: { message?: string } };
 
 /** 账号展示名：姓名 · 机构，机构缺失时只显示姓名。 */
 export function accountLabel(account: AccountItem): string {
@@ -45,28 +37,31 @@ export function receiveLabel(account: AccountItem): string {
   return account.receiveEnabled ? '定时接收' : '已暂停';
 }
 
-/** 从 ctx.remote 取账号命名空间；缺失时返回 undefined 由界面提示。 */
-export function accountRemote(ctx: any): AccountRemote | undefined {
-  try {
-    return ctx?.remote?.feishuLarkCli;
-  } catch {
-    return undefined;
-  }
-}
+const ENDPOINTS = {
+  accounts: 'account.list',
+  addAccount: 'account.add',
+  setDefault: 'account.setDefault',
+  setReceive: 'account.setReceive',
+  remove: 'account.remove',
+} as const;
 
-type Call = (method: keyof AccountRemote, ...args: unknown[]) => Promise<{ accounts?: AccountItem[]; error?: string }>;
+type Call = (method: keyof typeof ENDPOINTS, payload?: Record<string, unknown>) => Promise<{ accounts?: AccountItem[]; error?: string }>;
 
-export function createAccountCaller(remote: AccountRemote | undefined): Call {
-  return async (method, ...args) => {
-    if (!remote || typeof (remote as any)[method] !== 'function') {
-      return { error: '飞书账号服务未就绪，请重启 DSH 后再试' };
+/** 通过 Connection 的通用 RPC 通道调用宿主账号接口。 */
+export function createAccountCaller(connection: any): Call {
+  return async (method, payload = {}) => {
+    if (typeof connection?.rpc?.call !== 'function') {
+      return { error: 'DSH 连接服务不可用，请刷新页面后再试' };
     }
     try {
-      const result = await (remote as any)[method](...args);
-      if (result?.ok === false) {
-        return { error: result.error?.message ?? '操作失败' };
+      const result = (await connection.rpc.call('/api', ACCOUNT_RPC_ENDPOINT, {
+        method: ENDPOINTS[method],
+        payload,
+      })) as RpcResult;
+      if (!result?.ok) {
+        return { error: result?.error?.message ?? '操作失败' };
       }
-      return { accounts: result?.value?.accounts };
+      return { accounts: result.value?.accounts };
     } catch (error) {
       return { error: error instanceof Error ? error.message : String(error) };
     }
@@ -79,8 +74,8 @@ function AccountRow({ account, call, busy, onChange }: {
   busy: boolean;
   onChange: (accounts: AccountItem[]) => void;
 }) {
-  const run = async (method: keyof AccountRemote, ...args: unknown[]) => {
-    const result = await call(method, ...args);
+  const run = async (method: keyof typeof ENDPOINTS, payload: Record<string, unknown>) => {
+    const result = await call(method, payload);
     if (result.accounts) onChange(result.accounts);
   };
   return c('li', {
@@ -92,17 +87,17 @@ function AccountRow({ account, call, busy, onChange }: {
   c('button', {
     type: 'button',
     disabled: busy || account.isDefault,
-    onClick: () => void run('setDefault', account.id),
+    onClick: () => void run('setDefault', { id: account.id }),
   }, '设为默认'),
   c('button', {
     type: 'button',
     disabled: busy,
-    onClick: () => void run('setReceive', account.id, !account.receiveEnabled),
+    onClick: () => void run('setReceive', { id: account.id, enabled: !account.receiveEnabled }),
   }, account.receiveEnabled ? '暂停接收' : '开启接收'),
   c('button', {
     type: 'button',
     disabled: busy,
-    onClick: () => void run('remove', account.id),
+    onClick: () => void run('remove', { id: account.id }),
   }, '移除'));
 }
 
@@ -129,7 +124,7 @@ export function AccountsSection({ call }: { call: Call }) {
   const addAccount = async () => {
     setBusy(true);
     setNotice('正在读取 lark-cli 授权身份…');
-    const result = await call('addAccount', 'default');
+    const result = await call('addAccount', { profile: 'default' });
     if (result.accounts) {
       setAccounts(result.accounts);
       setError(null);
@@ -161,8 +156,7 @@ export function AccountsSection({ call }: { call: Call }) {
 }
 
 export function apply(ctx: any) {
-  const remote = accountRemote(ctx);
-  const call = createAccountCaller(remote);
+  const call = createAccountCaller(ctx.connection);
   const effect = typeof ctx.effect === 'function' ? ctx.effect.bind(ctx) : (fn: () => () => void) => {
     const dispose = fn();
     return () => dispose?.();
@@ -172,7 +166,7 @@ export function apply(ctx: any) {
     id: 'dsh-feishu-lark-cli',
     order: 22,
     label: () => 'feishu-lark-cli',
-    inject: () => ['remote'],
+    inject: () => ['connection'],
   }, () => AccountsSection({ call }))), 'dsh-feishu-lark-cli: settings section');
 }
 
