@@ -132,7 +132,7 @@ export async function apply(ctx: any) {
   logger.info?.('[dsh-feishu-lark-cli] 服务已挂载');
 }
 
-export { openDatabase, saveMessage } from './db.js';
+export { openDatabase, saveMessage, saveSentMessage } from './db.js';
 export { runCli, resolveCliPath, supportsJsonFormat, larkConfigHome, larkCliEnv } from './cli.js';
 export { defaultAccount, resolveContext } from './account.js';
 export { resolveMention } from './relation.js';

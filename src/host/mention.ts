@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import type { Account } from '../shared/types.js';
 import { sendMessage } from './message.js';
+import { saveSentMessage } from './db.js';
 import { pickAccount } from './tools.js';
 
 /** 从输入文本中解析出的飞书 mention。 */
@@ -77,10 +78,23 @@ export async function sendMentionMessage(
     if (!response.ok) {
       throw new Error(response.error?.message ?? `发送到 ${mention.label} 失败`);
     }
+    const messageId = (response.data as any)?.message_id;
+    if (messageId) {
+      saveSentMessage(db, {
+        accountId: account.id,
+        messageId,
+        chatId: mention.type === 'chat' ? mention.id : `p2p:${mention.id}`,
+        chatType: mention.type === 'chat' ? 'group' : 'p2p',
+        senderOpenId: account.openId,
+        messageType: 'text',
+        content: body,
+        createTime: new Date().toISOString(),
+      });
+    }
     results.push({
       account: account.name,
       target: mention.label,
-      messageId: (response.data as any)?.message_id,
+      messageId,
     });
   }
 

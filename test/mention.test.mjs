@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseMentions, stripMentions } from '../lib/index.js';
+import { parseMentions, stripMentions, saveSentMessage, openDatabase } from '../lib/index.js';
 
 test('解析序列化形式的飞书 mention', () => {
   const text = '@[张三](dsh-feishu:accA:user:ou_a1) 会议改到三点';
@@ -60,4 +60,14 @@ test('正文为空时剔除结果为空白', () => {
   const text = '@[张三](dsh-feishu:accA:user:ou_a1)';
   const mentions = parseMentions(text);
   assert.equal(stripMentions(text, mentions), '');
+});
+
+test('已发送消息可落库并保持 sent 来源', () => {
+  const db = openDatabase(':memory:');
+  const inserted = saveSentMessage(db, {
+    accountId: 'accA', messageId: 'om_sent', chatId: 'p2p:ou_a1', chatType: 'p2p',
+    senderOpenId: 'ou_me', messageType: 'text', content: '你好', createTime: '2026-11-13T00:00:00Z',
+  });
+  assert.equal(inserted, true);
+  assert.deepEqual(db.prepare('select source, content from message').get(), { source: 'sent', content: '你好' });
 });
