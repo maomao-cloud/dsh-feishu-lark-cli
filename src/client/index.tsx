@@ -329,6 +329,10 @@ export function AccountsSection({ call }: { call: Call }) {
 export function apply(ctx: any) {
   const call = createAccountCaller(ctx.connection);
 
+  /** 已注册来源的作用域与对应的回收函数；同一作用域只注册一次。 */
+  const registeredScopes = new Map<any, () => void>();
+  let disposed = false;
+
   const source = createFeishuTriggerSource({
     loadAccounts: async () => {
       const result = await call('relationCatalog');
@@ -343,19 +347,51 @@ export function apply(ctx: any) {
     },
   });
 
-  // 挂接输入框 @ 管线：等 inputTriggers 服务就绪后再注册，
-  // 与文件/会话引用并列，不覆盖。服务卸载时由 ctx 统一回收。
-  if (typeof ctx.inject === 'function') {
-    ctx.inject(['inputTriggers'], (scope: any) => {
-      const registered = scope.inputTriggers?.registerSource(source);
-      return typeof registered === 'function' ? registered : () => {};
-    });
-  }
-
   const effect = typeof ctx.effect === 'function' ? ctx.effect.bind(ctx) : (fn: () => () => void) => {
     const dispose = fn();
     return () => dispose?.();
   };
+
+  /**
+   * 挂接输入框 `@` 管线：等 `inputTriggers` 服务就绪后再注册。
+   *
+   * 服务由 DSH 自带的 `@deepseek-ai/dsh-client-ui-input-trigger` 提供，
+   * 与文件/会话引用并列，不覆盖。重复注册会抛错，因此已注册时静默跳过，
+   * 保证插件被重新激活后仍能正常工作。
+   */
+  const registerTrigger = (scope: any) => {
+    const registered = registeredScopes.get(scope);
+    if (registered !== undefined) return registered;
+    if (disposed) return () => {};
+    let dispose: () => void;
+    try {
+      const stop = scope.inputTriggers?.registerSource(source);
+      dispose = typeof stop === 'function' ? stop : () => {};
+    } catch (error) {
+      // 相同时机下全局来源表里已有同名来源（同一页面重复激活），不视为失败。
+      if (!String(error instanceof Error ? error.message : error).includes('already registered')) throw error;
+      dispose = () => {};
+    }
+    const release = () => {
+      registeredScopes.delete(scope);
+      dispose();
+    };
+    registeredScopes.set(scope, release);
+    return release;
+  };
+
+  if (typeof ctx.inject === 'function') {
+    const scopeFiber = ctx.inject(['inputTriggers'], registerTrigger);
+    // 父 fiber 释放时一并回收来源，避免 HMR 重载后仍指向旧闭包。
+    effect(() => () => {
+      disposed = true;
+      for (const [scope, release] of registeredScopes) {
+        registeredScopes.delete(scope);
+        release();
+      }
+      void scopeFiber?.dispose?.();
+    }, 'dsh-feishu-lark-cli: @ source lifetime');
+  }
   effect(() => ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section',
     id: 'dsh-feishu-lark-cli',
