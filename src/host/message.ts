@@ -194,21 +194,25 @@ export class PollingReceiver {
   }
 
   /** 执行一轮拉取；上一轮未完成时直接跳过，避免任务堆积。 */
-  async tick(): Promise<{ chats: number; inserted: number }> {
-    if (this.inflight) return { chats: 0, inserted: 0 };
+  async tick(): Promise<{ chats: number; inserted: number; failed: number }> {
+    if (this.inflight) return { chats: 0, inserted: 0, failed: 0 };
     this.inflight = true;
     let inserted = 0;
     let chats = 0;
+    let failed = 0;
     try {
       const listed = await listChats(this.account);
-      if (!listed.ok) return { chats: 0, inserted: 0 };
+      if (!listed.ok) return { chats: 0, inserted: 0, failed: 1 };
       const items = listed.data?.chats ?? [];
       for (const chat of items.slice(0, this.chatLimit)) {
         if (!this.running) break;
         chats += 1;
         const cursor = getReceiveCursor(this.db, this.account.id, chat.chat_id);
         const result = await pullChatMessages(this.account, chat.chat_id, cursor);
-        if (!result.ok) continue;
+        if (!result.ok) {
+          failed += 1;
+          continue;
+        }
         let newest: string | undefined;
         for (const raw of result.data?.messages ?? []) {
           const message = normalizeMessage(this.account.id, raw);
@@ -221,6 +225,6 @@ export class PollingReceiver {
     } finally {
       this.inflight = false;
     }
-    return { chats, inserted };
+    return { chats, inserted, failed };
   }
 }

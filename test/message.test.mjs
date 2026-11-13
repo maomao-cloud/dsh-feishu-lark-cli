@@ -114,7 +114,7 @@ test('PollingReceiver.stop 后不再拉取，start 幂等', async () => {
   assert.equal(receiver.isRunning, false);
   // 停止后单轮拉取立即返回，不产生任何写入。
   const result = await receiver.tick();
-  assert.deepEqual(result, { chats: 0, inserted: 0 });
+  assert.deepEqual(result, { chats: 0, inserted: 0, failed: 0 });
   assert.equal(directory.db.prepare('SELECT COUNT(*) AS count FROM message').get().count, 0);
 });
 
@@ -140,7 +140,7 @@ test('PollingReceiver 在 CLI 不可用时静默跳过而不抛出', async () =>
     receiver.start();
     const result = await receiver.tick();
     receiver.stop();
-    assert.deepEqual(result, { chats: 0, inserted: 0 });
+    assert.deepEqual(result, { chats: 0, inserted: 0, failed: 0 });
   } finally {
     if (previous === undefined) delete process.env.LARK_CLI_PATH;
     else process.env.LARK_CLI_PATH = previous;
