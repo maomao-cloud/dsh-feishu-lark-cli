@@ -130,7 +130,11 @@ export function registerFeishuTools(ctx: any, deps: ToolDeps) {
         unwrap(result);
         return `已通过「${account.name}」向 ${target.name} 发送消息`;
       } catch (error) {
-        return `发送失败：${describeError(error)}`;
+        const message = describeError(error);
+        if (/权限|scope|token|授权|expired|过期/i.test(message) && typeof args.accountId === 'string') {
+          deps.directory.markExpired(args.accountId);
+        }
+        return `发送失败：${message}`;
       }
     },
   });

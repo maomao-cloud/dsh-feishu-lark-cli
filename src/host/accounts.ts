@@ -117,6 +117,10 @@ export class AccountDirectory {
     return row ? map(row) : undefined;
   }
 
+  markExpired(id: string): void {
+    this.db.prepare("UPDATE account SET auth_status = 'expired', updated_at = ? WHERE id = ?").run(new Date().toISOString(), id);
+  }
+
   describeError(code?: string, message?: string): string {
     if (code && ERROR_HINTS[code]) return ERROR_HINTS[code];
     return message ? `读取飞书账号身份失败：${message}` : '读取飞书账号身份失败';
