@@ -70,6 +70,9 @@ test('mention 载荷可正确解析', () => {
   });
   assert.equal(parseMentionValue('bad:value'), undefined);
   assert.equal(parseMentionValue('dsh-feishu:accA:bogus:id'), undefined);
+  assert.deepEqual(parseMentionValue('dsh-feishu:profile:open:user:ou_a1'), {
+    accountId: 'profile:open', type: 'user', id: 'ou_a1',
+  });
 });
 
 test('source 定义满足 DSH 触发管线契约', async () => {

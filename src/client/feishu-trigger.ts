@@ -75,9 +75,13 @@ export function parseMentionValue(value: string): {
   id: string;
 } | undefined {
   const parts = value.split(':');
-  if (parts.length !== 4 || parts[0] !== FEISHU_MENTION_SCHEME) return undefined;
-  const [, accountId, type, id] = parts;
-  if (type !== 'user' && type !== 'chat') return undefined;
+  // accountId 由 profile 与 open_id 组成，本身可能包含 `:`；协议的最后
+  // 两段才是 target type 与 target id，不能再按固定 4 段解构。
+  if (parts.length < 4 || parts[0] !== FEISHU_MENTION_SCHEME) return undefined;
+  const type = parts.at(-2);
+  const id = parts.at(-1);
+  const accountId = parts.slice(1, -2).join(':');
+  if (!accountId || !id || (type !== 'user' && type !== 'chat')) return undefined;
   return { accountId, type, id };
 }
 
