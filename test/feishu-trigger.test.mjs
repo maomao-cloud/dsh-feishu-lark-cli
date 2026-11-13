@@ -112,7 +112,7 @@ test('候选 name 使用规范 mention，避免界面显示一长串 ID', async 
   const rows = await source.candidates({}, { query: '张三' });
 
   for (const row of rows) {
-    // name 必须是 @[..](dsh-feishu:..) 形式，且能被解析回账号与目标。
+    // name 必须是可读 mention，且能被解析回账号与目标。
     assert.match(row.name, /^@\[.+\]\(dsh-feishu:.+\)$/);
     assert.ok(parseMentionRef(row.name), `无法解析: ${row.name}`);
   }
@@ -148,10 +148,10 @@ test('codec.serialize 原样返回规范 ref，不再二次包装', async () => 
 test('同名用户描述带 openId 尾部以便区分', () => {
   const candidates = buildFeishuCandidates(ACCOUNTS, '张三');
   const descriptions = candidates.map((item) => item.description);
-  // 同一账号内同名时，尾 4 位必须不同，用户才能区分。
+  // 同一账号内同名时，账号上下文和尾 4 位都必须保留。
   assert.equal(new Set(descriptions).size, descriptions.length);
   for (const description of descriptions) {
-    assert.match(description, /^用户 · [0-9a-zA-Z_]+$/);
+    assert.match(description, /^.+ · .+ · 用户 · [0-9a-zA-Z_]+$/);
   }
 });
 
@@ -162,7 +162,7 @@ test('同名同尾位的真实场景可由 openId 全量区分载荷', () => {
 });
 
 test('toMentionRef 与 parseMentionRef 互为逆运算', () => {
-  const ref = toMentionRef({ accountId: 'accA', type: 'user', id: 'ou_a1' });
-  assert.equal(ref, '@[accA:user:ou_a1](dsh-feishu:accA:user:ou_a1)');
+  const ref = toMentionRef({ accountId: 'accA', type: 'user', id: 'ou_a1' }, '张三');
+  assert.equal(ref, '@[张三](dsh-feishu:accA:user:ou_a1)');
   assert.deepEqual(parseMentionRef(ref), { accountId: 'accA', type: 'user', id: 'ou_a1' });
 });

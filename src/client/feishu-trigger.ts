@@ -15,7 +15,10 @@ export const FEISHU_MENTION_SCHEME = 'dsh-feishu';
 export interface FeishuCandidate {
   /** 唯一标识，同时也是 mention token 的载荷。 */
   value: string;
+  /** 收件人展示名。 */
   label: string;
+  /** 账号/应用上下文，避免同名关系混淆。 */
+  accountLabel: string;
   description?: string;
   /** 分组标题：当前账号 / 其他账号。 */
   section: string;
@@ -46,6 +49,7 @@ export function buildFeishuCandidates(
   const candidates: FeishuCandidate[] = [];
 
   for (const account of ordered) {
+    const accountLabel = `${account.accountName}${account.appName ? ` · ${account.appName}` : ''}`;
     const section = account.isCurrent
       ? `当前账号：${account.accountName}${account.appName ? `（${account.appName}）` : ''}`
       : `其他账号：${account.accountName}${account.appName ? `（${account.appName}）` : ''}`;
@@ -59,7 +63,8 @@ export function buildFeishuCandidates(
         // 载荷需要同时表达账号与目标，避免跨账号同名混淆。
         value: `${FEISHU_MENTION_SCHEME}:${account.accountId}:${relation.type}:${relation.id}`,
         label: relation.name,
-        description: `${kind}${suffix ? ` · ${suffix}` : ''}`,
+        accountLabel,
+        description: `${accountLabel} · ${kind}${suffix ? ` · ${suffix}` : ''}`,
         section,
       });
     }
@@ -101,10 +106,14 @@ export function parseMentionRef(ref: string): {
 }
 
 /** 把内部载荷转成提交给模型的规范 mention 文本。 */
-export function toMentionRef(parsed: { accountId: string; type: 'user' | 'chat'; id: string } | undefined): string {
+export function toMentionRef(
+  parsed: { accountId: string; type: 'user' | 'chat'; id: string } | undefined,
+  displayName?: string,
+): string {
   // RPC/旧缓存中的异常候选不能让整个 @ 来源崩溃；调用方会过滤空 ref。
   if (!parsed?.accountId || !parsed.id || (parsed.type !== 'user' && parsed.type !== 'chat')) return '';
-  return `@[${parsed.accountId}:${parsed.type}:${parsed.id}](dsh-feishu:${parsed.accountId}:${parsed.type}:${parsed.id})`;
+  const label = displayName?.trim() || parsed.id;
+  return `@[${label}](dsh-feishu:${parsed.accountId}:${parsed.type}:${parsed.id})`;
 }
 
 /** 创建可注册到 DSH 触发管线的来源定义。 */
@@ -125,7 +134,7 @@ export function createFeishuTriggerSource(deps: {
         // 让整个 `@` 来源失败。规范 ref 和内部载荷两种形式都兼容。
         const parsed = parseMentionValue(item.value) ?? parseMentionRef(item.value);
         if (!parsed?.accountId || !parsed.id) return [];
-        const ref = toMentionRef(parsed);
+        const ref = toMentionRef(parsed, item.label);
         return [{
           // name 是唯一键，必须是规范 ref；显示用 label。
           name: ref,
@@ -163,7 +172,7 @@ export function createFeishuTriggerSource(deps: {
         insert: {
           source: FEISHU_SOURCE_NAME,
           // ref 是序列化后的规范形式，而不是内部载荷，避免界面显示一长串 ID。
-          ref: toMentionRef(parsed),
+          ref: toMentionRef(parsed, label),
           label,
           appearance: 'session',
           clipboardText: `@${label}`,
