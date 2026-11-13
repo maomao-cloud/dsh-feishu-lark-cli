@@ -28,9 +28,11 @@ export function parseMentions(text: string): ParsedMention[] {
   while ((match = pattern.exec(text)) !== null) {
     const [, label, ref] = match;
     const parts = ref.split(':');
-    if (parts.length !== 4 || parts[0] !== 'dsh-feishu') continue;
-    const [, accountId, type, id] = parts;
-    if (type !== 'user' && type !== 'chat') continue;
+    if (parts.length < 4 || parts[0] !== 'dsh-feishu') continue;
+    const type = parts.at(-2);
+    const id = parts.at(-1);
+    const accountId = parts.slice(1, -2).join(':');
+    if (!accountId || !id || (type !== 'user' && type !== 'chat')) continue;
     mentions.push({ accountId, type, id, raw: match[0], label });
   }
 

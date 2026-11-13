@@ -20,6 +20,17 @@ test('解析群 mention', () => {
   assert.equal(mentions[0].id, 'oc_9');
 });
 
+test('解析含冒号账号 ID 的 mention，供真实发送链路使用', () => {
+  const mentions = parseMentions('@[姜玉伟](dsh-feishu:cli_aa5441b4bbf9dcec:07154a7e:user:ou_92dce599fed1dae4f4e44a9626680899) 33335455');
+  assert.deepEqual(mentions[0], {
+    accountId: 'cli_aa5441b4bbf9dcec:07154a7e',
+    type: 'user',
+    id: 'ou_92dce599fed1dae4f4e44a9626680899',
+    raw: '@[姜玉伟](dsh-feishu:cli_aa5441b4bbf9dcec:07154a7e:user:ou_92dce599fed1dae4f4e44a9626680899)',
+    label: '姜玉伟',
+  });
+});
+
 test('支持一条消息多个 mention', () => {
   const text = '@[张三](dsh-feishu:accA:user:ou_a1) @[李四](dsh-feishu:accB:user:ou_b1) 请确认';
   const mentions = parseMentions(text);
