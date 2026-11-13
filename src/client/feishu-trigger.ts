@@ -136,8 +136,9 @@ export function createFeishuTriggerSource(deps: {
         if (!parsed?.accountId || !parsed.id) return [];
         const ref = toMentionRef(parsed, item.label);
         return [{
-          // name 是唯一键，必须是规范 ref；显示用 label。
-          name: ref,
+          // name 与 label 保持一致，避免 DSH 菜单把内部 ref 作为 alias 再展示一遍。
+          // value 承载完整协议；候选索引负责同名项的选中定位。
+          name: item.label || parsed.id,
           label: item.label || parsed.id,
           description: item.description,
           section: item.section,

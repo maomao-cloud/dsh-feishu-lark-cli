@@ -112,9 +112,9 @@ test('候选 name 使用规范 mention，避免界面显示一长串 ID', async 
   const rows = await source.candidates({}, { query: '张三' });
 
   for (const row of rows) {
-    // name 必须是可读 mention，且能被解析回账号与目标。
-    assert.match(row.name, /^@\[.+\]\(dsh-feishu:.+\)$/);
-    assert.ok(parseMentionRef(row.name), `无法解析: ${row.name}`);
+    // name 只显示收件人；完整协议保留在 value，供 onPick/序列化解析。
+    assert.equal(row.name, row.label);
+    assert.ok(parseMentionRef(row.value), `无法解析: ${row.value}`);
   }
 });
 
@@ -123,7 +123,7 @@ test('插入的 ref 与候选 name 一致，保证再次解析可用', async () 
   const rows = await source.candidates({}, { query: '张三' });
   const pick = source.onPick({ candidate: rows[0] });
 
-  assert.equal(pick.insert.ref, rows[0].name);
+  assert.equal(pick.insert.ref, rows[0].value);
   const parsed = parseMentionRef(pick.insert.ref);
   assert.equal(parsed.accountId, 'accA');
   assert.equal(parsed.type, 'user');
