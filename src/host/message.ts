@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 import { runCli } from './cli.js';
-import { saveMessage } from './db.js';
+import { advanceReceiveCursor, getReceiveCursor, saveMessage } from './db.js';
 import type { Account, CliResult, ReceivedMessage } from '../shared/types.js';
 
 /** 用户身份读取会话列表（单聊 + 群聊）。 */
@@ -206,13 +206,17 @@ export class PollingReceiver {
       for (const chat of items.slice(0, this.chatLimit)) {
         if (!this.running) break;
         chats += 1;
-        const result = await pullChatMessages(this.account, chat.chat_id);
+        const cursor = getReceiveCursor(this.db, this.account.id, chat.chat_id);
+        const result = await pullChatMessages(this.account, chat.chat_id, cursor);
         if (!result.ok) continue;
+        let newest: string | undefined;
         for (const raw of result.data?.messages ?? []) {
           const message = normalizeMessage(this.account.id, raw);
           if (!message.messageId) continue;
           if (persistReceivedMessage(this.db, message, this.sink)) inserted += 1;
+          if (message.createTime && (!newest || message.createTime > newest)) newest = message.createTime;
         }
+        if (newest) advanceReceiveCursor(this.db, this.account.id, chat.chat_id, newest);
       }
     } finally {
       this.inflight = false;

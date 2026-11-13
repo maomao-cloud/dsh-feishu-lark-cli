@@ -15,6 +15,14 @@ export function openDatabase(path: string): Database.Database {
 }
 export function saveMessage(db: Database.Database, message: ReceivedMessage): boolean { const s=db.prepare(`INSERT OR IGNORE INTO message(id,account_id,message_id,chat_id,chat_type,sender_open_id,message_type,content,root_id,parent_id,thread_id,create_time,source,created_at) VALUES(@id,@accountId,@messageId,@chatId,@chatType,@senderOpenId,@messageType,@content,@rootId,@parentId,@threadId,@createTime,@source,@createdAt)`); return s.run({rootId: null, parentId: null, threadId: null, ...message, id:`${message.accountId}:${message.messageId}`,createdAt:new Date().toISOString()}).changes===1; }
 
+export function getReceiveCursor(db: Database.Database, accountId: string, chatId: string): string | undefined {
+  return (db.prepare('SELECT cursor FROM receive_cursor WHERE account_id = ? AND chat_id = ?').get(accountId, chatId) as { cursor?: string } | undefined)?.cursor;
+}
+
+export function advanceReceiveCursor(db: Database.Database, accountId: string, chatId: string, cursor: string): void {
+  db.prepare(`INSERT INTO receive_cursor(id,account_id,chat_id,cursor,last_sync_time) VALUES(?,?,?,?,?) ON CONFLICT(account_id,chat_id) DO UPDATE SET cursor=excluded.cursor,last_sync_time=excluded.last_sync_time`).run(`${accountId}:${chatId}`, accountId, chatId, cursor, new Date().toISOString());
+}
+
 /** 记录已成功提交的出站消息，复用 message 表保持账号隔离与去重。 */
 export function saveSentMessage(db: Database.Database, message: Omit<ReceivedMessage, 'source'> & { source?: 'sent' }): boolean {
   return saveMessage(db, { ...message, source: 'sent' });

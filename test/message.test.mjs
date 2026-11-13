@@ -118,6 +118,14 @@ test('PollingReceiver.stop 后不再拉取，start 幂等', async () => {
   assert.equal(directory.db.prepare('SELECT COUNT(*) AS count FROM message').get().count, 0);
 });
 
+test('接收游标可写入并按账号与会话隔离读取', async () => {
+  const { openDatabase, advanceReceiveCursor, getReceiveCursor } = await import('../lib/index.js');
+  const db = openDatabase(':memory:');
+  advanceReceiveCursor(db, 'accA', 'oc_1', '2026-11-13T00:00:00Z');
+  assert.equal(getReceiveCursor(db, 'accA', 'oc_1'), '2026-11-13T00:00:00Z');
+  assert.equal(getReceiveCursor(db, 'accB', 'oc_1'), undefined);
+});
+
 test('PollingReceiver 在 CLI 不可用时静默跳过而不抛出', async () => {
   const { PollingReceiver } = await import('../lib/index.js');
   const directory = directoryWithAccount();
