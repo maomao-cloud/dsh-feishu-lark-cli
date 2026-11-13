@@ -59,6 +59,8 @@ npm test        # node --test
 npm pack
 ```
 
+详细测试分层、`@` 来源生命周期回归，以及官方客户端测试运行时在独立 npm 包上的适用边界，见 [`docs/testing.md`](docs/testing.md)。
+
 发布包包含构建后的 `lib/`、Skills 与 DSH bundle 声明；`@larksuite/cli`、`better-sqlite3`、TypeScript/esbuild 均由 lockfile 固定版本。
 
 ## 首次使用
