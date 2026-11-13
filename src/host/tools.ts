@@ -120,7 +120,7 @@ export function registerFeishuTools(ctx: any, deps: ToolDeps) {
             (accountId) => pickAccount(deps.directory, accountId),
           );
           return sent
-            .map((item) => `已通过「${item.account}」向 ${item.target} 发送消息`)
+            .map((item) => `「${item.account}」→ ${item.target}：${item.status === 'sent' ? '已发送' : item.status === 'unknown' ? '状态未知，禁止自动重发' : '发送失败'}`)
             .join('\n');
         }
 

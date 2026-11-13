@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3';
-import type { Account } from '../shared/types.js';
+import type { Account, SendStatus } from '../shared/types.js';
 import { sendMessage } from './message.js';
 import { saveSentMessage } from './db.js';
 import { pickAccount } from './tools.js';
@@ -50,6 +50,7 @@ export function stripMentions(text: string, mentions: ParsedMention[]): string {
 export interface SendResult {
   account: string;
   target: string;
+  status: SendStatus;
   messageId?: string;
 }
 
@@ -74,8 +75,15 @@ export async function sendMentionMessage(
   for (const mention of mentions) {
     const account = pickAccountFor(mention.accountId);
     const target = { type: mention.type, id: mention.id };
-    const response = await sendMessage(account, target, body, `fsl-${Date.now()}-${results.length}`);
+    let response;
+    try {
+      response = await sendMessage(account, target, body, `fsl-${Date.now()}-${results.length}`);
+    } catch (error) {
+      results.push({ account: account.name, target: mention.label, status: 'unknown' });
+      throw error;
+    }
     if (!response.ok) {
+      results.push({ account: account.name, target: mention.label, status: 'failed' });
       throw new Error(response.error?.message ?? `发送到 ${mention.label} 失败`);
     }
     const messageId = (response.data as any)?.message_id;
@@ -94,6 +102,7 @@ export async function sendMentionMessage(
     results.push({
       account: account.name,
       target: mention.label,
+      status: 'sent',
       messageId,
     });
   }
